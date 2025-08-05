@@ -1,0 +1,12 @@
+{
+  "name": "music-server",
+  "version": "1.0.0",
+  "description": "WebSocket server for ESP32 audio",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "ws": "^8.18.3"
+  }
+}
