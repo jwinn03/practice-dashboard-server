@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Music Practice Server</title>
+    <style>
+        body { font-family: 'Comic Sans MS', 'Comic Sans', cursive, sans-serif; background-color: #f0f0f0; padding: 2em; }
+        h1 { color: #333; }
+        #status { font-style: italic; }
+    </style>
+</head>
+<body>
+    <h1>Music Practice Server</h1>
+    <p>Status: <span id="status">Connecting...</span></p>
+    <p>Check the browser's developer console for messages from the server.</p>
+
+    <script>
+        const statusElement = document.getElementById('status');
+        const ws = new WebSocket(`ws://${window.location.host}`);
+
+        ws.onopen = () => {
+            console.log('WebSocket connection opened');
+            statusElement.textContent = 'Connected';
+            ws.send('Hello from the browser!');
+        };
+
+        ws.onmessage = (event) => {
+            console.log('Message from server: ', event.data);
+            // You can add code here to display messages on the page
+        };
+
+        ws.onclose = () => {
+            console.log('WebSocket connection closed');
+            statusElement.textContent = 'Disconnected';
+        };
+
+        ws.onerror = (error) => {
+            console.error('WebSocket Error: ', error);
+            statusElement.textContent = 'Error';
+        };
+    </script>
+</body>
+</html>

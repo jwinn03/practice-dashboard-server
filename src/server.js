@@ -1,26 +1,41 @@
-// A simple WebSocket server for receiving data from the ESP32
+const http = require('http');
+const fs = require('fs');
+const path = require('path');
 const WebSocket = require('ws');
 
-// The server will run on port 8080
-const wss = new WebSocket.Server({ port: 8080 });
+// Create a standard HTTP server
+const server = http.createServer((req, res) => {
+  // This part serves the index.html file
+  const filePath = path.join(__dirname, 'index.html');
+  fs.readFile(filePath, (err, data) => {
+    if (err) {
+      res.writeHead(500);
+      res.end('Error loading index.html');
+      return;
+    }
+    res.writeHead(200, { 'Content-Type': 'text/html' });
+    res.end(data);
+  });
+});
 
-console.log('WebSocket server started on port 8080');
+// Create a WebSocket server and attach it to the HTTP server
+const wss = new WebSocket.Server({ server });
+
+console.log('HTTP and WebSocket server started on port 8080');
 
 wss.on('connection', ws => {
   console.log('Client connected');
 
-  // When a message is received from a client (our ESP32)
+  // When a message is received from a client (ESP32 or Browser)
   ws.on('message', message => {
-    // For now, we'll just log the message.
-    // In a real application, you might process or store this audio data.
     console.log('Received message => %s', message);
 
-    // You could also broadcast this message to other connected clients (like a web browser)
-    // wss.clients.forEach(client => {
-    //   if (client !== ws && client.readyState === WebSocket.OPEN) {
-    //     client.send(message);
-    //   }
-    // });
+    // Broadcast the received message to all other connected clients
+    wss.clients.forEach(client => {
+      if (client !== ws && client.readyState === WebSocket.OPEN) {
+        client.send(message);
+      }
+    });
   });
 
   ws.on('close', () => {
@@ -30,3 +45,5 @@ wss.on('connection', ws => {
   ws.send('Welcome! You are connected.');
 });
 
+// Start the HTTP server
+server.listen(8080);
