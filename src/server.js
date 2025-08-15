@@ -27,16 +27,22 @@ wss.on('connection', ws => {
   console.log('Client connected');
 
   // When a message is received from a client (ESP32 or Browser)
-  ws.on('message', message => {
-    console.log('Received message => %s', message);
-
+  ws.on('message', (message, isBinary) => {
     // Broadcast the received message to all other connected clients
-    wss.clients.forEach(client => {
-      if (client !== ws && client.readyState === WebSocket.OPEN) {
-        client.send(message);
-      }
-    });
+    if (isBinary) {
+      wss.clients.forEach(client => {
+        // Broadcast the binary audio data to all other connected clients
+        if (client !== ws && client.readyState === WebSocket.OPEN) {
+          client.send(message, { binary: true });
+        }
+      });
+    } else {
+      // If it's a text message (likely from a browser), log it
+      console.log('Received text message => %s', message.toString());
+    }
+      
   });
+  
 
   ws.on('close', () => {
     console.log('Client disconnected');

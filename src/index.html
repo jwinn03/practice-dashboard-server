@@ -4,41 +4,274 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Music Practice Server</title>
+    <!-- Import the pitchy library from a CDN -->
+    <script src="https://cdn.jsdelivr.net/npm/pitchy@4.1.0/dist/pitchy.min.js"></script>
     <style>
-        body { font-family: 'Comic Sans MS', 'Comic Sans', cursive, sans-serif; background-color: #f0f0f0; padding: 2em; }
-        h1 { color: #333; }
-        #status { font-style: italic; }
+        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; background-color: #f4f7f9; padding: 1em; color: #333; line-height: 1.6; }
+        .container { max-width: 600px; margin: 0 auto; background: #fff; padding: 2rem; border-radius: 8px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); }
+        h1, h2 { color: #1a202c; border-bottom: 1px solid #e2e8f0; padding-bottom: 0.5rem; margin-bottom: 1rem;}
+        #status { font-weight: bold; }
+        button { background-color: #4299e1; color: white; border: none; padding: 10px 20px; border-radius: 5px; cursor: pointer; font-size: 16px; margin-right: 10px; transition: background-color 0.2s; }
+        button:hover { background-color: #2b6cb0; }
+        button:disabled { background-color: #a0aec0; cursor: not-allowed; }
+        audio { margin-top: 20px; width: 100%; }
+        .tuner { margin-top: 2rem; padding: 1rem; border: 1px solid #e2e8f0; border-radius: 8px; }
+        .tuner-display { display: flex; justify-content: space-around; text-align: center; font-size: 1.2em; }
+        .tuner-display div { flex: 1; }
+        .tuner-display span { display: block; font-size: 1.8em; font-weight: bold; }
+        #historyLog { margin-top: 1rem; max-height: 200px; overflow-y: auto; border: 1px solid #e2e8f0; padding: 1rem; border-radius: 8px; font-family: monospace; font-size: 0.9em; }
+        input[type="file"] { margin-top: 10px; }
     </style>
 </head>
 <body>
-    <h1>Music Practice Server</h1>
-    <p>Status: <span id="status">Connecting...</span></p>
-    <p>Check the browser's developer console for messages from the server.</p>
+    <div class="container">
+        <h1>Music Practice Server</h1>
+        <p>Status: <span id="status">Connecting...</span></p>
+        
+        <h2>Live Recording</h2>
+        <div>
+            <button id="recordBtn">Record 5s</button>
+            <button id="playBtn" disabled>Play</button>
+        </div>
+        
+        <hr style="margin: 2rem 0;">
+
+        <h2>Analyze WAV File</h2>
+        <input type="file" id="fileInput" accept=".wav">
+        <audio id="audioPlayer" controls></audio>
+        <div id="historyLog">Analysis history will appear here...</div>
+
+        <div class="tuner">
+            <h2>Real-Time Tuner</h2>
+            <div class="tuner-display">
+                <div>Note<span id="note">--</span></div>
+                <div>Cents<span id="cents">--</span></div>
+                <div>Accuracy<span id="accuracy">--</span></div>
+            </div>
+        </div>
+    </div>
 
     <script>
+        // DOM Elements
         const statusElement = document.getElementById('status');
+        const recordBtn = document.getElementById('recordBtn');
+        const playBtn = document.getElementById('playBtn');
+        const audioPlayer = document.getElementById('audioPlayer');
+        const noteEl = document.getElementById('note');
+        const centsEl = document.getElementById('cents');
+        const accuracyEl = document.getElementById('accuracy');
+        const historyLog = document.getElementById('historyLog');
+        const fileInput = document.getElementById('fileInput');
+
+        // Audio & Recording Constants
+        const LIVE_SAMPLE_RATE = 16000;
+        const RECORD_DURATION_MS = 5000;
+        const ANALYSIS_BUFFER_SIZE = 2048;
+
+        // State Variables
+        let isRecording = false;
+        let audioChunks = [];
+        let accuracyHistory = [];
+        let pitchyDetector;
+        let audioContext;
+        
+        // --- NOTE & FREQUENCY DATA ---
+        const A4 = 440;
+        const noteNames = ["A", "A#", "B", "C", "C#", "D", "D#", "E", "F", "F#", "G", "G#"];
+        const standardFrequencies = {};
+        for (let i = 0; i < 88; i++) {
+            const freq = A4 * Math.pow(2, (i - 48) / 12);
+            const octave = Math.floor(i / 12) + 1;
+            const noteName = noteNames[i % 12];
+            standardFrequencies[freq] = `${noteName}${octave}`;
+        }
+        const sortedFreqs = Object.keys(standardFrequencies).map(Number).sort((a, b) => a - b);
+
+
+        // --- WEBSOCKET SETUP ---
         const ws = new WebSocket(`ws://${window.location.host}`);
+        ws.binaryType = 'arraybuffer';
 
         ws.onopen = () => {
             console.log('WebSocket connection opened');
             statusElement.textContent = 'Connected';
-            ws.send('Hello from the browser!');
+            statusElement.style.color = 'green';
         };
 
         ws.onmessage = (event) => {
-            console.log('Message from server: ', event.data);
-            // You can add code here to display messages on the page
+            if (event.data instanceof ArrayBuffer) {
+                const pcmData = new Int16Array(event.data);
+                if (isRecording) {
+                    audioChunks.push(pcmData);
+                }
+                analyzePitch(pcmData, LIVE_SAMPLE_RATE);
+            }
         };
 
         ws.onclose = () => {
             console.log('WebSocket connection closed');
             statusElement.textContent = 'Disconnected';
+            statusElement.style.color = 'red';
         };
 
-        ws.onerror = (error) => {
-            console.error('WebSocket Error: ', error);
-            statusElement.textContent = 'Error';
+        // --- PITCH DETECTION & ANALYSIS ---
+        window.addEventListener('load', () => {
+            audioContext = new (window.AudioContext || window.webkitAudioContext)();
+            pitchyDetector = pitchy.PitchDetector.forFloat32Array(ANALYSIS_BUFFER_SIZE);
+        });
+
+        function analyzePitch(pcmData, sampleRate) {
+            if (!pitchyDetector) return;
+
+            let pcmFloat32Data;
+            // Convert data to Float32Array if it's not already
+            if (pcmData instanceof Int16Array) {
+                pcmFloat32Data = new Float32Array(pcmData.length);
+                for (let i = 0; i < pcmData.length; i++) {
+                    pcmFloat32Data[i] = pcmData[i] / 32768.0;
+                }
+            } else {
+                pcmFloat32Data = pcmData;
+            }
+
+            const [pitch, clarity] = pitchyDetector.findPitch(pcmFloat32Data, sampleRate);
+
+            if (clarity > 0.95) {
+                const { targetFreq, noteName } = findClosestNote(pitch);
+                const cents = 1200 * Math.log2(pitch / targetFreq);
+                const accuracy = Math.max(0, 100 - (Math.abs(cents) * 2));
+
+                noteEl.textContent = noteName;
+                centsEl.textContent = cents.toFixed(1);
+                accuracyEl.textContent = `${accuracy.toFixed(0)}%`;
+
+                // Return data for history logging
+                return { noteName, cents: cents.toFixed(1), accuracy: accuracy.toFixed(0) };
+            }
+            return null;
+        }
+
+        function findClosestNote(frequency) {
+            let closestFreq = sortedFreqs[0];
+            for (let i = 1; i < sortedFreqs.length; i++) {
+                if (Math.abs(sortedFreqs[i] - frequency) < Math.abs(closestFreq - frequency)) {
+                    closestFreq = sortedFreqs[i];
+                }
+            }
+            return { targetFreq: closestFreq, noteName: standardFrequencies[closestFreq] };
+        }
+
+
+        // --- LIVE RECORDING & PLAYBACK ---
+        recordBtn.onclick = () => {
+            isRecording = true;
+            recordBtn.disabled = true;
+            playBtn.disabled = true;
+            audioChunks = [];
+            accuracyHistory = [];
+            historyLog.innerHTML = 'Recording live audio...';
+            statusElement.textContent = 'Recording...';
+
+            setTimeout(() => {
+                isRecording = false;
+                recordBtn.disabled = false;
+                statusElement.textContent = 'Recording finished.';
+                
+                displayHistory(accuracyHistory, 'live');
+
+                if (audioChunks.length > 0) {
+                    const audioBlob = createWavBlob(audioChunks);
+                    const audioUrl = URL.createObjectURL(audioBlob);
+                    audioPlayer.src = audioUrl;
+                    playBtn.disabled = false;
+                } else {
+                    historyLog.innerHTML = 'No audio data received during recording.';
+                }
+            }, RECORD_DURATION_MS);
         };
+        
+        playBtn.onclick = () => {
+            audioPlayer.play();
+        };
+
+        // --- FILE UPLOAD & ANALYSIS ---
+        fileInput.onchange = (event) => {
+            const file = event.target.files[0];
+            if (!file) return;
+
+            const reader = new FileReader();
+            reader.onload = (e) => {
+                historyLog.innerHTML = 'Analyzing file...';
+                audioContext.decodeAudioData(e.target.result, (audioBuffer) => {
+                    const pcmData = audioBuffer.getChannelData(0); // Get Float32 data from channel 0
+                    const sampleRate = audioBuffer.sampleRate;
+                    const fileAccuracyHistory = [];
+
+                    // Process the file in chunks
+                    for (let i = 0; i < pcmData.length; i += ANALYSIS_BUFFER_SIZE) {
+                        const chunk = pcmData.slice(i, i + ANALYSIS_BUFFER_SIZE);
+                        const result = analyzePitch(chunk, sampleRate);
+                        if(result) {
+                            const time = (i / sampleRate).toFixed(2);
+                            fileAccuracyHistory.push({ time, ...result });
+                        }
+                    }
+                    
+                    displayHistory(fileAccuracyHistory, 'file');
+                    
+                    // Make the uploaded file playable
+                    const fileUrl = URL.createObjectURL(file);
+                    audioPlayer.src = fileUrl;
+                    playBtn.disabled = false;
+                });
+            };
+            reader.readAsArrayBuffer(file);
+        };
+
+        // --- UI & UTILITY FUNCTIONS ---
+        function displayHistory(history, type) {
+            if (history.length > 0) {
+                historyLog.innerHTML = history.map(item => 
+                    `Time: ${item.time}s | Note: ${item.noteName} | Cents: ${item.cents} | Accuracy: ${item.accuracy}%`
+                ).join('<br>');
+            } else {
+                historyLog.innerHTML = `No clear notes were detected in the ${type === 'live' ? 'recording' : 'file'}.`;
+            }
+        }
+
+        function createWavBlob(audioChunks) {
+            let totalLength = 0;
+            audioChunks.forEach(chunk => { totalLength += chunk.length; });
+            const pcmData = new Int16Array(totalLength);
+            let offset = 0;
+            audioChunks.forEach(chunk => { pcmData.set(chunk, offset); offset += chunk.length; });
+            const buffer = new ArrayBuffer(44 + pcmData.byteLength);
+            const view = new DataView(buffer);
+            const numChannels = 1, bitsPerSample = 16;
+            const blockAlign = numChannels * bitsPerSample / 8;
+            const byteRate = LIVE_SAMPLE_RATE * blockAlign;
+            writeString(view, 0, 'RIFF');
+            view.setUint32(4, 36 + pcmData.byteLength, true);
+            writeString(view, 8, 'WAVE');
+            writeString(view, 12, 'fmt ');
+            view.setUint32(16, 16, true);
+            view.setUint16(20, 1, true);
+            view.setUint16(22, numChannels, true);
+            view.setUint32(24, LIVE_SAMPLE_RATE, true);
+            view.setUint32(28, byteRate, true);
+            view.setUint16(32, blockAlign, true);
+            view.setUint16(34, bitsPerSample, true);
+            writeString(view, 36, 'data');
+            view.setUint32(40, pcmData.byteLength, true);
+            new Int16Array(buffer, 44).set(pcmData);
+            return new Blob([view], { type: 'audio/wav' });
+        }
+
+        function writeString(view, offset, string) {
+            for (let i = 0; i < string.length; i++) {
+                view.setUint8(offset + i, string.charCodeAt(i));
+            }
+        }
     </script>
 </body>
 </html>
