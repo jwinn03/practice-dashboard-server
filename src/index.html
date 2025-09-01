@@ -43,6 +43,7 @@
             <h2>Real-Time Tuner</h2>
             <div class="tuner-display">
                 <div>Note<span id="note">--</span></div>
+                <div>Freq (Hz)<span id="frequency">--</span></div>
                 <div>Cents<span id="cents">--</span></div>
                 <div>Accuracy<span id="accuracy">--</span></div>
             </div>
@@ -60,6 +61,7 @@
         const playBtn = document.getElementById('playBtn');
         const audioPlayer = document.getElementById('audioPlayer');
         const noteEl = document.getElementById('note');
+        const frequencyEl = document.getElementById('frequency');
         const centsEl = document.getElementById('cents');
         const accuracyEl = document.getElementById('accuracy');
         const historyLog = document.getElementById('historyLog');
@@ -149,10 +151,11 @@
                 const accuracy = Math.max(0, 100 - (Math.abs(cents) * 2));
 
                 noteEl.textContent = noteName;
+                frequencyEl.textContent = pitch.toFixed(1);
                 centsEl.textContent = cents.toFixed(1);
                 accuracyEl.textContent = `${accuracy.toFixed(0)}%`;
 
-                return { noteName, cents: cents.toFixed(1), accuracy: accuracy.toFixed(0) };
+                return { pitch: pitch.toFixed(1), noteName, cents: cents.toFixed(1), accuracy: accuracy.toFixed(0) };
             }
             return null;
         }
@@ -236,7 +239,7 @@
         function displayHistory(history, type) {
             if (history.length > 0) {
                 historyLog.innerHTML = history.map(item => 
-                    `Time: ${item.time}s | Note: ${item.noteName} | Cents: ${item.cents} | Accuracy: ${item.accuracy}%`
+                    `Time: ${item.time}s | Freq: ${item.pitch}Hz | Note: ${item.noteName} | Cents: ${item.cents} | Accuracy: ${item.accuracy}%`
                 ).join('<br>');
             } else {
                 historyLog.innerHTML = `No clear notes were detected in the ${type === 'live' ? 'recording' : 'file'}.`;
