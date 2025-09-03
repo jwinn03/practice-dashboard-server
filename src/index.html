@@ -85,7 +85,7 @@
         const standardFrequencies = {};
         for (let i = 0; i < 88; i++) {
             const freq = A4 * Math.pow(2, (i - 48) / 12);
-            const octave = Math.floor(i / 12) + 1 - 1; //change - remove -1
+            const octave = Math.floor((i + 9) / 12); //change - remove -1
             const noteName = noteNames[i % 12];
             standardFrequencies[freq] = `${noteName}${octave}`;
         }
@@ -210,7 +210,10 @@
 
             const reader = new FileReader();
             reader.onload = (e) => {
-                historyLog.innerHTML = 'Analyzing file...';
+                //historyLog.innerHTML = 'Analyzing file...';
+                historyLog.innerHTML = JSON.stringify(standardFrequencies, null, 2);
+
+                
                 audioContext.decodeAudioData(e.target.result, (audioBuffer) => {
                     const pcmData = audioBuffer.getChannelData(0);
                     const sampleRate = audioBuffer.sampleRate;
@@ -233,6 +236,8 @@
                 });
             };
             reader.readAsArrayBuffer(file);
+
+            
         };
 
         // --- UI & UTILITY FUNCTIONS ---
