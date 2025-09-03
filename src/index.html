@@ -85,7 +85,7 @@
         const standardFrequencies = {};
         for (let i = 0; i < 88; i++) {
             const freq = A4 * Math.pow(2, (i - 48) / 12);
-            const octave = Math.floor(i / 12) + 1;
+            const octave = Math.floor(i / 12) + 1 - 1; //change - remove -1
             const noteName = noteNames[i % 12];
             standardFrequencies[freq] = `${noteName}${octave}`;
         }
