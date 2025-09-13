@@ -4,6 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Music Practice Server</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <style>
         body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; background-color: #f4f7f9; padding: 1em; color: #333; line-height: 1.6; }
         .container { max-width: 600px; margin: 0 auto; background: #fff; padding: 2rem; border-radius: 8px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); }
@@ -19,6 +20,8 @@
         .tuner-display span { display: block; font-size: 1.8em; font-weight: bold; }
         #historyLog { margin-top: 1rem; max-height: 200px; overflow-y: auto; border: 1px solid #e2e8f0; padding: 1rem; border-radius: 8px; font-family: monospace; font-size: 0.9em; }
         input[type="file"] { margin-top: 10px; }
+        .chart-container { margin-top: 1rem; position: relative; height: 300px; width: 100%; }
+        .chart-container canvas { max-height: 300px; }
     </style>
 </head>
 <body>
@@ -38,6 +41,9 @@
         <input type="file" id="fileInput" accept=".wav">
         <audio id="audioPlayer" controls></audio>
         <div id="historyLog">Analysis history will appear here...</div>
+        <div class="chart-container">
+            <canvas id="accuracyChart"></canvas>
+        </div>
 
         <div class="tuner">
             <h2>Real-Time Tuner</h2>
@@ -66,6 +72,7 @@
         const accuracyEl = document.getElementById('accuracy');
         const historyLog = document.getElementById('historyLog');
         const fileInput = document.getElementById('fileInput');
+        const accuracyChartCanvas = document.getElementById('accuracyChart');
 
         // Audio & Recording Constants
         const LIVE_SAMPLE_RATE = 16000;
@@ -78,6 +85,7 @@
         let accuracyHistory = [];
         let pitchyDetector;
         let audioContext;
+        let accuracyChart;
         
         // --- NOTE & FREQUENCY DATA ---
         const A4 = 440;
@@ -211,7 +219,7 @@
             const reader = new FileReader();
             reader.onload = (e) => {
                 //historyLog.innerHTML = 'Analyzing file...';
-                historyLog.innerHTML = JSON.stringify(standardFrequencies, null, 2);
+                //historyLog.innerHTML = JSON.stringify(standardFrequencies, null, 2);
 
                 
                 audioContext.decodeAudioData(e.target.result, (audioBuffer) => {
@@ -219,15 +227,17 @@
                     const sampleRate = audioBuffer.sampleRate;
                     const fileAccuracyHistory = [];
 
-                    for (let i = 0; i < pcmData.length; i += ANALYSIS_BUFFER_SIZE) {
+                    for (let i = 0; i < pcmData.length - ANALYSIS_BUFFER_SIZE; i += ANALYSIS_BUFFER_SIZE) {
                         const chunk = pcmData.slice(i, i + ANALYSIS_BUFFER_SIZE);
                         const result = analyzePitch(chunk, sampleRate);
                         if(result) {
                             const time = (i / sampleRate).toFixed(2);
                             fileAccuracyHistory.push({ time, ...result });
                         }
+                        console.log(i);
+                        
                     }
-                    
+                    console.log("pcmdata length: " + pcmData.length);
                     displayHistory(fileAccuracyHistory, 'file');
                     
                     const fileUrl = URL.createObjectURL(file);
@@ -240,14 +250,120 @@
             
         };
 
+        //TODO:
+        //Add abilility to switch between cents and % accuracy in UI
+        //Add audio player to fit with the chart
+
         // --- UI & UTILITY FUNCTIONS ---
+        function renderAccuracyChart(history) {
+            if (!history || history.length === 0) {
+                if (accuracyChart) {
+                    accuracyChart.destroy();
+                    accuracyChart = null;
+                }
+                return;
+            }
+
+            const ctx = accuracyChartCanvas.getContext('2d');
+            
+            // Destroy existing chart if it exists
+            if (accuracyChart) {
+                accuracyChart.destroy();
+            }
+
+            const labels = history.map(item => `${item.time}s`);
+            const accuracyData = history.map(item => parseFloat(item.accuracy));
+
+            accuracyChart = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: labels,
+                    datasets: [{
+                        label: 'Note Accuracy (%)',
+                        data: accuracyData,
+                        borderColor: '#4299e1',
+                        backgroundColor: 'rgba(66, 153, 225, 0.1)',
+                        borderWidth: 2,
+                        fill: true,
+                        tension: 0.4,
+                        pointBackgroundColor: '#4299e1',
+                        pointBorderColor: '#2b6cb0',
+                        pointRadius: 4,
+                        pointHoverRadius: 6
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    scales: {
+                        y: {
+                            beginAtZero: true,
+                            max: 100,
+                            title: {
+                                display: true,
+                                text: 'Accuracy (%)'
+                            },
+                            grid: {
+                                color: 'rgba(0,0,0,0.1)'
+                            }
+                        },
+                        x: {
+                            title: {
+                                display: true,
+                                text: 'Time (seconds)'
+                            },
+                            grid: {
+                                color: 'rgba(0,0,0,0.1)'
+                            }
+                        }
+                    },
+                    plugins: {
+                        legend: {
+                            display: true,
+                            position: 'top'
+                        },
+                        tooltip: {
+                            mode: 'index',
+                            intersect: false,
+                            callbacks: {
+                                title: function(context) {
+                                    return `Time: ${context[0].label}`;
+                                },
+                                label: function(context) {
+                                    const dataIndex = context.dataIndex;
+                                    const item = history[dataIndex];
+                                    return [
+                                        `Accuracy: ${item.accuracy}%`,
+                                        `Note: ${item.noteName}`,
+                                        `Frequency: ${item.pitch}Hz`,
+                                        `Cents: ${item.cents}`
+                                    ];
+                                }
+                            }
+                        }
+                    },
+                    interaction: {
+                        mode: 'nearest',
+                        axis: 'x',
+                        intersect: false
+                    }
+                }
+            });
+        }
+
         function displayHistory(history, type) {
             if (history.length > 0) {
                 historyLog.innerHTML = history.map(item => 
                     `Time: ${item.time}s | Freq: ${item.pitch}Hz | Note: ${item.noteName} | Cents: ${item.cents} | Accuracy: ${item.accuracy}%`
                 ).join('<br>');
+                
+                // Render the accuracy chart
+                renderAccuracyChart(history);
             } else {
                 historyLog.innerHTML = `No clear notes were detected in the ${type === 'live' ? 'recording' : 'file'}.`;
+                
+                // Clear the chart if no data
+                renderAccuracyChart([]);
             }
         }
 
