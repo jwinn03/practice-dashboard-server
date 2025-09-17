@@ -31,8 +31,17 @@
         .audio-volume-container { display: flex; align-items: center; gap: 0.5rem; }
         .audio-volume-container input[type="range"] { width: 80px; }
         
-        .chart-container { margin-top: 1rem; position: relative; height: 300px; width: 100%; }
-        .chart-container canvas { max-height: 300px; cursor: crosshair; }
+        /* Chart Controls */
+        .chart-controls { margin-top: 1rem; display: flex; align-items: center; gap: 1rem; flex-wrap: wrap; }
+        .chart-controls button { margin-right: 0; padding: 6px 12px; font-size: 14px; }
+        .chart-controls label { display: flex; align-items: center; gap: 0.5rem; font-size: 14px; cursor: pointer; }
+        .chart-controls input[type="checkbox"], .chart-controls input[type="range"] { margin: 0; }
+        .chart-controls .zoom-control { display: flex; align-items: center; gap: 0.5rem; }
+        .chart-controls .zoom-control span { font-size: 14px; min-width: 60px; }
+        
+        .chart-container { margin-top: 0.5rem; position: relative; height: 400px; width: 100%; overflow-x: auto; }
+        .chart-container canvas { cursor: crosshair; }
+        .chart-wrapper { position: relative; }
     </style>
 </head>
 <body>
@@ -51,6 +60,8 @@
         <h2>Analyze WAV File</h2>
         <input type="file" id="fileInput" accept=".wav">
         <audio id="audioPlayer" controls style="display: none;"></audio>
+        
+        <div id="historyLog">Analysis history will appear here...</div>
         
         <!-- Custom Audio Player Interface -->
         <div class="audio-player-container" id="audioPlayerContainer" style="display: none;">
@@ -72,9 +83,24 @@
             </div>
         </div>
         
-        <div id="historyLog">Analysis history will appear here...</div>
+        <!-- Chart Controls -->
+        <div class="chart-controls" id="chartControls" style="display: none;">
+            <label>
+                <input type="checkbox" id="showDataPoints" checked>
+                Show Data Points
+            </label>
+            <div class="zoom-control">
+                <span>Zoom:</span>
+                <input type="range" id="zoomSlider" min="10" max="100" value="30" step="5">
+                <span id="zoomValue">30px</span>
+            </div>
+            <button id="resetZoomBtn">Reset Scroll</button>
+        </div>
+        
         <div class="chart-container">
-            <canvas id="accuracyChart"></canvas>
+            <div class="chart-wrapper">
+                <canvas id="accuracyChart"></canvas>
+            </div>
         </div>
 
         <div class="tuner">
@@ -115,6 +141,13 @@
         const currentTimeEl = document.getElementById('currentTime');
         const totalTimeEl = document.getElementById('totalTime');
         const volumeSlider = document.getElementById('volumeSlider');
+        
+        // Chart Control Elements
+        const chartControls = document.getElementById('chartControls');
+        const showDataPointsCheckbox = document.getElementById('showDataPoints');
+        const resetZoomBtn = document.getElementById('resetZoomBtn');
+        const zoomSlider = document.getElementById('zoomSlider');
+        const zoomValue = document.getElementById('zoomValue');
 
         // Audio & Recording Constants
         const LIVE_SAMPLE_RATE = 16000;
@@ -129,6 +162,8 @@
         let audioContext;
         let accuracyChart;
         let currentAudioHistory = []; // Store current audio analysis history
+        let showDataPoints = true; // Track data points visibility
+        let zoomLevel = 30; // Track zoom level (pixels per data point)
         
         // --- NOTE & FREQUENCY DATA ---
         const A4 = 440;
@@ -410,6 +445,55 @@
         // Initialize audio player when page loads
         setupAudioPlayer();
 
+        // Initialize chart controls
+        setupChartControls();
+
+        // --- CHART CONTROLS FUNCTIONALITY ---
+        function setupChartControls() {
+            // Data points visibility toggle
+            showDataPointsCheckbox.onchange = (e) => {
+                showDataPoints = e.target.checked;
+                if (accuracyChart) {
+                    updateDataPointsVisibility();
+                }
+            };
+
+            // Zoom level control
+            zoomSlider.oninput = (e) => {
+                zoomLevel = parseInt(e.target.value);
+                zoomValue.textContent = zoomLevel + 'px';
+                // Re-render chart with new zoom level
+                if (currentAudioHistory.length > 0) {
+                    renderAccuracyChart(currentAudioHistory);
+                }
+            };
+
+            // Reset scroll button
+            resetZoomBtn.onclick = () => {
+                const chartContainer = document.querySelector('.chart-container');
+                if (chartContainer) {
+                    chartContainer.scrollLeft = 0;
+                }
+            };
+        }
+
+        function updateDataPointsVisibility() {
+            if (accuracyChart && accuracyChart.data.datasets.length > 0) {
+                // Update all datasets
+                accuracyChart.data.datasets.forEach(dataset => {
+                    if (dataset.label === 'Note Accuracy (%)') {
+                        dataset.pointRadius = showDataPoints ? 4 : 0;
+                        dataset.pointHoverRadius = showDataPoints ? 6 : 0;
+                    } else if (dataset.label === 'Current Position') {
+                        dataset.pointRadius = showDataPoints ? 6 : 0;
+                        dataset.pointHoverRadius = showDataPoints ? 8 : 0;
+                    }
+                });
+                
+                accuracyChart.update('none');
+            }
+        }
+
         // --- UI & UTILITY FUNCTIONS ---
         function renderAccuracyChart(history) {
             if (!history || history.length === 0) {
@@ -420,106 +504,165 @@
                 return;
             }
 
-            const ctx = accuracyChartCanvas.getContext('2d');
-            
-            // Destroy existing chart if it exists
-            if (accuracyChart) {
-                accuracyChart.destroy();
-            }
+            try {
+                const ctx = accuracyChartCanvas.getContext('2d');
+                
+                // Destroy existing chart if it exists
+                if (accuracyChart) {
+                    accuracyChart.destroy();
+                }
 
-            const labels = history.map(item => `${item.time}s`);
-            const accuracyData = history.map(item => parseFloat(item.accuracy));
+                // Sample data for very long audio files to prevent Chart.js crashes
+                let processedHistory = history;
+                const maxDataPoints = 1000; // Maximum data points to prevent crashes
+                
+                if (history.length > maxDataPoints) {
+                    const step = Math.ceil(history.length / maxDataPoints);
+                    processedHistory = history.filter((_, index) => index % step === 0);
+                    console.log(`Sampled ${history.length} data points down to ${processedHistory.length} for chart rendering`);
+                }
 
-            accuracyChart = new Chart(ctx, {
-                type: 'line',
-                data: {
-                    labels: labels,
-                    datasets: [{
-                        label: 'Note Accuracy (%)',
-                        data: accuracyData,
-                        borderColor: '#4299e1',
-                        backgroundColor: 'rgba(66, 153, 225, 0.1)',
-                        borderWidth: 2,
-                        fill: true,
-                        tension: 0.4,
-                        pointBackgroundColor: '#4299e1',
-                        pointBorderColor: '#2b6cb0',
-                        pointRadius: 4,
-                        pointHoverRadius: 6
-                    }]
-                },
-                options: {
-                    responsive: true,
-                    maintainAspectRatio: false,
-                    scales: {
-                        y: {
-                            beginAtZero: true,
-                            max: 100,
-                            title: {
-                                display: true,
-                                text: 'Accuracy (%)'
-                            },
-                            grid: {
-                                color: 'rgba(0,0,0,0.1)'
-                            }
-                        },
-                        x: {
-                            title: {
-                                display: true,
-                                text: 'Time (seconds)'
-                            },
-                            grid: {
-                                color: 'rgba(0,0,0,0.1)'
-                            }
-                        }
+                const labels = processedHistory.map(item => `${item.time}s`);
+                const accuracyData = processedHistory.map(item => parseFloat(item.accuracy));
+
+                // Calculate chart width using zoom level - limit maximum width to prevent issues
+                const maxWidth = 10000; // Maximum chart width to prevent crashes
+                const chartWidth = Math.min(maxWidth, Math.max(600, labels.length * zoomLevel));
+                
+                // Set the chart wrapper width to enable horizontal scrolling
+                const chartWrapper = document.querySelector('.chart-wrapper');
+                chartWrapper.style.width = chartWidth + 'px';
+
+                accuracyChart = new Chart(ctx, {
+                    type: 'line',
+                    data: {
+                        labels: labels,
+                        datasets: [{
+                            label: 'Note Accuracy (%)',
+                            data: accuracyData,
+                            borderColor: '#4299e1',
+                            backgroundColor: 'rgba(66, 153, 225, 0.1)',
+                            borderWidth: 2,
+                            fill: true,
+                            tension: 0.4,
+                            pointBackgroundColor: '#4299e1',
+                            pointBorderColor: '#2b6cb0',
+                            pointRadius: showDataPoints ? 4 : 0,
+                            pointHoverRadius: showDataPoints ? 6 : 0
+                        }]
                     },
-                    plugins: {
-                        legend: {
-                            display: true,
-                            position: 'top'
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        width: chartWidth,
+                        height: 400,
+                        animation: {
+                            duration: 0 // Disable animations for better performance with large datasets
                         },
-                        tooltip: {
-                            mode: 'index',
-                            intersect: false,
-                            callbacks: {
-                                title: function(context) {
-                                    return `Time: ${context[0].label}`;
+                        scales: {
+                            y: {
+                                beginAtZero: true,
+                                max: 100,
+                                title: {
+                                    display: true,
+                                    text: 'Accuracy (%)'
                                 },
-                                label: function(context) {
-                                    const dataIndex = context.dataIndex;
-                                    const item = history[dataIndex];
-                                    return [
-                                        `Accuracy: ${item.accuracy}%`,
-                                        `Note: ${item.noteName}`,
-                                        `Frequency: ${item.pitch}Hz`,
-                                        `Cents: ${item.cents}`
-                                    ];
+                                grid: {
+                                    color: 'rgba(0,0,0,0.1)'
+                                }
+                            },
+                            x: {
+                                title: {
+                                    display: true,
+                                    text: 'Time (seconds)'
+                                },
+                                grid: {
+                                    color: 'rgba(0,0,0,0.1)'
+                                },
+                                ticks: {
+                                    maxTicksLimit: Math.min(20, labels.length)
                                 }
                             }
-                        }
-                    },
-                    interaction: {
-                        mode: 'nearest',
-                        axis: 'x',
-                        intersect: false
-                    },
-                    onClick: (event, elements) => {
-                        if (elements.length > 0 && audioPlayer.duration) {
-                            const element = elements[0];
-                            const timeValue = parseFloat(history[element.index].time);
-                            audioPlayer.currentTime = timeValue;
-                            updateProgress();
+                        },
+                        plugins: {
+                            legend: {
+                                display: true,
+                                position: 'top'
+                            },
+                            tooltip: {
+                                mode: 'index',
+                                intersect: false,
+                                callbacks: {
+                                    title: function(context) {
+                                        return `Time: ${context[0].label}`;
+                                    },
+                                    label: function(context) {
+                                        const dataIndex = context.dataIndex;
+                                        const item = processedHistory[dataIndex];
+                                        return [
+                                            `Accuracy: ${item.accuracy}%`,
+                                            `Note: ${item.noteName}`,
+                                            `Frequency: ${item.pitch}Hz`,
+                                            `Cents: ${item.cents}`
+                                        ];
+                                    }
+                                }
+                            }
+                        },
+                        interaction: {
+                            mode: 'nearest',
+                            axis: 'x',
+                            intersect: false
+                        },
+                        onClick: (event, elements) => {
+                            if (elements.length > 0 && audioPlayer.duration) {
+                                const element = elements[0];
+                                const timeValue = parseFloat(processedHistory[element.index].time);
+                                audioPlayer.currentTime = timeValue;
+                                updateProgress();
+                            }
                         }
                     }
+                });
+
+                // Update the currentAudioHistory to use processed data for playback position tracking
+                currentAudioHistory = processedHistory;
+
+            } catch (error) {
+                console.error('Error rendering chart:', error);
+                // Fallback: show a simple message instead of the chart
+                accuracyChartCanvas.style.display = 'none';
+                const chartContainer = document.querySelector('.chart-container');
+                if (!chartContainer.querySelector('.chart-error')) {
+                    const errorDiv = document.createElement('div');
+                    errorDiv.className = 'chart-error';
+                    errorDiv.innerHTML = `
+                        <div style="padding: 2rem; text-align: center; color: #666;">
+                            <p>Chart rendering failed for this audio file.</p>
+                            <p>The audio file may be too long or complex for visualization.</p>
+                            <p>You can still use the audio player and analysis log above.</p>
+                        </div>
+                    `;
+                    chartContainer.appendChild(errorDiv);
                 }
-            });
+            }
         }
 
         function displayHistory(history, type) {
             if (history.length > 0) {
-                historyLog.innerHTML = history.map(item => 
+                let logContent = history.map(item => 
                     `Time: ${item.time}s | Freq: ${item.pitch}Hz | Note: ${item.noteName} | Cents: ${item.cents} | Accuracy: ${item.accuracy}%`
                 ).join('<br>');
+                
+                // Add sampling notice if data was sampled
+                if (history.length > 1000) {
+                    logContent = `<div style="background: #fff3cd; padding: 0.5rem; margin-bottom: 0.5rem; border-radius: 4px; border-left: 4px solid #ffc107;">
+                        <strong>Note:</strong> This audio file has ${history.length} data points. The chart shows a sampled version (max 1000 points) for better performance. 
+                        All ${history.length} data points are shown in this log.
+                    </div>` + logContent;
+                }
+                
+                historyLog.innerHTML = logContent;
                 
                 // Store current audio history for chart interaction
                 currentAudioHistory = history;
@@ -529,6 +672,9 @@
                     audioPlayerContainer.style.display = 'block';
                 }
                 
+                // Show chart controls
+                chartControls.style.display = 'flex';
+                
                 // Render the accuracy chart
                 renderAccuracyChart(history);
             } else {
@@ -536,6 +682,9 @@
                 
                 // Hide custom audio player if no data
                 audioPlayerContainer.style.display = 'none';
+                
+                // Hide chart controls if no data
+                chartControls.style.display = 'none';
                 
                 // Clear the chart if no data
                 renderAccuracyChart([]);
