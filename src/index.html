@@ -20,8 +20,19 @@
         .tuner-display span { display: block; font-size: 1.8em; font-weight: bold; }
         #historyLog { margin-top: 1rem; max-height: 200px; overflow-y: auto; border: 1px solid #e2e8f0; padding: 1rem; border-radius: 8px; font-family: monospace; font-size: 0.9em; }
         input[type="file"] { margin-top: 10px; }
+        
+        /* Custom Audio Player Styles */
+        .audio-player-container { margin-top: 1rem; padding: 1rem; border: 1px solid #e2e8f0; border-radius: 8px; background: #f8fafc; }
+        .audio-player-controls { display: flex; align-items: center; gap: 1rem; margin-bottom: 0.5rem; }
+        .audio-player-controls button { margin-right: 0; padding: 8px 16px; font-size: 14px; }
+        .audio-progress-container { position: relative; width: 100%; height: 8px; background: #e2e8f0; border-radius: 4px; cursor: pointer; margin: 0.5rem 0; }
+        .audio-progress-bar { height: 100%; background: #4299e1; border-radius: 4px; width: 0%; transition: width 0.1s ease; }
+        .audio-time-display { display: flex; justify-content: space-between; font-size: 0.9em; color: #666; margin-top: 0.25rem; }
+        .audio-volume-container { display: flex; align-items: center; gap: 0.5rem; }
+        .audio-volume-container input[type="range"] { width: 80px; }
+        
         .chart-container { margin-top: 1rem; position: relative; height: 300px; width: 100%; }
-        .chart-container canvas { max-height: 300px; }
+        .chart-container canvas { max-height: 300px; cursor: crosshair; }
     </style>
 </head>
 <body>
@@ -39,7 +50,28 @@
 
         <h2>Analyze WAV File</h2>
         <input type="file" id="fileInput" accept=".wav">
-        <audio id="audioPlayer" controls></audio>
+        <audio id="audioPlayer" controls style="display: none;"></audio>
+        
+        <!-- Custom Audio Player Interface -->
+        <div class="audio-player-container" id="audioPlayerContainer" style="display: none;">
+            <h3 style="margin-top: 0; margin-bottom: 1rem;">Audio Player</h3>
+            <div class="audio-player-controls">
+                <button id="playPauseBtn">Play</button>
+                <button id="stopBtn">Stop</button>
+                <div class="audio-volume-container">
+                    <span>🔊</span>
+                    <input type="range" id="volumeSlider" min="0" max="1" step="0.1" value="1">
+                </div>
+            </div>
+            <div class="audio-progress-container" id="progressContainer">
+                <div class="audio-progress-bar" id="progressBar"></div>
+            </div>
+            <div class="audio-time-display">
+                <span id="currentTime">0:00</span>
+                <span id="totalTime">0:00</span>
+            </div>
+        </div>
+        
         <div id="historyLog">Analysis history will appear here...</div>
         <div class="chart-container">
             <canvas id="accuracyChart"></canvas>
@@ -73,6 +105,16 @@
         const historyLog = document.getElementById('historyLog');
         const fileInput = document.getElementById('fileInput');
         const accuracyChartCanvas = document.getElementById('accuracyChart');
+        
+        // Custom Audio Player Elements
+        const audioPlayerContainer = document.getElementById('audioPlayerContainer');
+        const playPauseBtn = document.getElementById('playPauseBtn');
+        const stopBtn = document.getElementById('stopBtn');
+        const progressContainer = document.getElementById('progressContainer');
+        const progressBar = document.getElementById('progressBar');
+        const currentTimeEl = document.getElementById('currentTime');
+        const totalTimeEl = document.getElementById('totalTime');
+        const volumeSlider = document.getElementById('volumeSlider');
 
         // Audio & Recording Constants
         const LIVE_SAMPLE_RATE = 16000;
@@ -86,6 +128,7 @@
         let pitchyDetector;
         let audioContext;
         let accuracyChart;
+        let currentAudioHistory = []; // Store current audio analysis history
         
         // --- NOTE & FREQUENCY DATA ---
         const A4 = 440;
@@ -201,6 +244,9 @@
                     const audioUrl = URL.createObjectURL(audioBlob);
                     audioPlayer.src = audioUrl;
                     playBtn.disabled = false;
+                    
+                    // Show custom audio player
+                    audioPlayerContainer.style.display = 'block';
                 } else {
                     historyLog.innerHTML = 'No audio data received during recording.';
                 }
@@ -243,6 +289,9 @@
                     const fileUrl = URL.createObjectURL(file);
                     audioPlayer.src = fileUrl;
                     playBtn.disabled = false;
+                    
+                    // Show custom audio player
+                    audioPlayerContainer.style.display = 'block';
                 });
             };
             reader.readAsArrayBuffer(file);
@@ -250,9 +299,116 @@
             
         };
 
-        //TODO:
-        //Add abilility to switch between cents and % accuracy in UI
-        //Add audio player to fit with the chart
+        // --- CUSTOM AUDIO PLAYER FUNCTIONALITY ---
+        function setupAudioPlayer() {
+            // Play/Pause functionality
+            playPauseBtn.onclick = () => {
+                if (audioPlayer.paused) {
+                    audioPlayer.play();
+                    playPauseBtn.textContent = 'Pause';
+                } else {
+                    audioPlayer.pause();
+                    playPauseBtn.textContent = 'Play';
+                }
+            };
+
+            // Stop functionality
+            stopBtn.onclick = () => {
+                audioPlayer.pause();
+                audioPlayer.currentTime = 0;
+                playPauseBtn.textContent = 'Play';
+                updateProgress();
+            };
+
+            // Volume control
+            volumeSlider.oninput = (e) => {
+                audioPlayer.volume = e.target.value;
+            };
+
+            // Progress bar click to seek
+            progressContainer.onclick = (e) => {
+                if (audioPlayer.duration) {
+                    const rect = progressContainer.getBoundingClientRect();
+                    const clickX = e.clientX - rect.left;
+                    const percentage = clickX / rect.width;
+                    audioPlayer.currentTime = percentage * audioPlayer.duration;
+                }
+            };
+
+            // Audio event listeners
+            audioPlayer.addEventListener('timeupdate', updateProgress);
+            audioPlayer.addEventListener('loadedmetadata', () => {
+                totalTimeEl.textContent = formatTime(audioPlayer.duration);
+            });
+            audioPlayer.addEventListener('ended', () => {
+                playPauseBtn.textContent = 'Play';
+                updateProgress();
+            });
+        }
+
+        function updateProgress() {
+            if (audioPlayer.duration) {
+                const progress = (audioPlayer.currentTime / audioPlayer.duration) * 100;
+                progressBar.style.width = progress + '%';
+                currentTimeEl.textContent = formatTime(audioPlayer.currentTime);
+                
+                // Update chart visualization with current playback position
+                updateChartPlaybackPosition(audioPlayer.currentTime);
+            }
+        }
+
+        function formatTime(seconds) {
+            const mins = Math.floor(seconds / 60);
+            const secs = Math.floor(seconds % 60);
+            return `${mins}:${secs.toString().padStart(2, '0')}`;
+        }
+
+        function updateChartPlaybackPosition(currentTime) {
+            if (accuracyChart && currentAudioHistory.length > 0) {
+                // Find the closest data point to current time
+                const targetTime = parseFloat(currentTime.toFixed(2));
+                const dataPoint = currentAudioHistory.find(item => 
+                    Math.abs(parseFloat(item.time) - targetTime) < 0.1
+                );
+                
+                // Update chart with playback indicator
+                if (dataPoint && accuracyChart.data.datasets.length > 1) {
+                    // Remove existing playback line if it exists
+                    accuracyChart.data.datasets = accuracyChart.data.datasets.filter(
+                        dataset => dataset.label !== 'Current Position'
+                    );
+                }
+                
+                // Add playback position indicator
+                const timeIndex = currentAudioHistory.findIndex(item => 
+                    parseFloat(item.time) >= targetTime
+                );
+                
+                if (timeIndex !== -1) {
+                    const playbackData = new Array(currentAudioHistory.length).fill(null);
+                    playbackData[timeIndex] = parseFloat(currentAudioHistory[timeIndex].accuracy);
+                    
+                    accuracyChart.data.datasets.push({
+                        label: 'Current Position',
+                        data: playbackData,
+                        borderColor: '#e53e3e',
+                        backgroundColor: 'rgba(229, 62, 62, 0.1)',
+                        borderWidth: 3,
+                        fill: false,
+                        pointBackgroundColor: '#e53e3e',
+                        pointBorderColor: '#c53030',
+                        pointRadius: 6,
+                        pointHoverRadius: 8,
+                        showLine: false
+                    });
+                    
+                    accuracyChart.update('none');
+                }
+            }
+        }
+
+        // Initialize audio player when page loads
+        setupAudioPlayer();
 
         // --- UI & UTILITY FUNCTIONS ---
         function renderAccuracyChart(history) {
@@ -346,6 +502,14 @@
                         mode: 'nearest',
                         axis: 'x',
                         intersect: false
+                    },
+                    onClick: (event, elements) => {
+                        if (elements.length > 0 && audioPlayer.duration) {
+                            const element = elements[0];
+                            const timeValue = parseFloat(history[element.index].time);
+                            audioPlayer.currentTime = timeValue;
+                            updateProgress();
+                        }
                     }
                 }
             });
@@ -357,10 +521,21 @@
                     `Time: ${item.time}s | Freq: ${item.pitch}Hz | Note: ${item.noteName} | Cents: ${item.cents} | Accuracy: ${item.accuracy}%`
                 ).join('<br>');
                 
+                // Store current audio history for chart interaction
+                currentAudioHistory = history;
+                
+                // Show custom audio player if audio is loaded
+                if (audioPlayer.src) {
+                    audioPlayerContainer.style.display = 'block';
+                }
+                
                 // Render the accuracy chart
                 renderAccuracyChart(history);
             } else {
                 historyLog.innerHTML = `No clear notes were detected in the ${type === 'live' ? 'recording' : 'file'}.`;
+                
+                // Hide custom audio player if no data
+                audioPlayerContainer.style.display = 'none';
                 
                 // Clear the chart if no data
                 renderAccuracyChart([]);
