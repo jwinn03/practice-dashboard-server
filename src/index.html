@@ -47,6 +47,7 @@
         #audioPlayer:hover {
             opacity: 1;
         }
+
     </style>
 </head>
 <body>
@@ -62,10 +63,48 @@
         
         <h2>Analyze WAV File</h2>
         <input type="file" id="fileInput" accept=".wav">
+
         <div id="historyLog">Analysis history will appear here...</div>
+        
+        <!-- Custom Audio Player Interface -->
+        <div class="audio-player-container" id="audioPlayerContainer" style="display: none;">
+            <h3 style="margin-top: 0; margin-bottom: 1rem;">Audio Player</h3>
+            <div class="audio-player-controls">
+                <button id="playPauseBtn">Play</button>
+                <button id="stopBtn">Stop</button>
+                <div class="audio-volume-container">
+                    <span>🔊</span>
+                    <input type="range" id="volumeSlider" min="0" max="1" step="0.1" value="1">
+                </div>
+            </div>
+            <div class="audio-progress-container" id="progressContainer">
+                <div class="audio-progress-bar" id="progressBar"></div>
+            </div>
+            <div class="audio-time-display">
+                <span id="currentTime">0:00</span>
+                <span id="totalTime">0:00</span>
+            </div>
+        </div>
+        
+        <!-- Chart Controls -->
+        <div class="chart-controls" id="chartControls" style="display: none;">
+            <label>
+                <input type="checkbox" id="showDataPoints" checked>
+                Show Data Points
+            </label>
+            <div class="zoom-control">
+                <span>Zoom:</span>
+                <input type="range" id="zoomSlider" min="10" max="100" value="30" step="5">
+                <span id="zoomValue">30px</span>
+            </div>
+            <button id="resetZoomBtn">Reset Scroll</button>
+        </div>
+        
         <div class="chart-container">
+
             <canvas id="accuracyChart"></canvas>
             <audio id="audioPlayer" controls></audio>
+
         </div>
 
         <div class="tuner">
@@ -96,6 +135,23 @@
         const historyLog = document.getElementById('historyLog');
         const fileInput = document.getElementById('fileInput');
         const accuracyChartCanvas = document.getElementById('accuracyChart');
+        
+        // Custom Audio Player Elements
+        const audioPlayerContainer = document.getElementById('audioPlayerContainer');
+        const playPauseBtn = document.getElementById('playPauseBtn');
+        const stopBtn = document.getElementById('stopBtn');
+        const progressContainer = document.getElementById('progressContainer');
+        const progressBar = document.getElementById('progressBar');
+        const currentTimeEl = document.getElementById('currentTime');
+        const totalTimeEl = document.getElementById('totalTime');
+        const volumeSlider = document.getElementById('volumeSlider');
+        
+        // Chart Control Elements
+        const chartControls = document.getElementById('chartControls');
+        const showDataPointsCheckbox = document.getElementById('showDataPoints');
+        const resetZoomBtn = document.getElementById('resetZoomBtn');
+        const zoomSlider = document.getElementById('zoomSlider');
+        const zoomValue = document.getElementById('zoomValue');
 
         // Audio & Recording Constants
         const LIVE_SAMPLE_RATE = 16000;
@@ -109,6 +165,9 @@
         let pitchyDetector;
         let audioContext;
         let accuracyChart;
+        let currentAudioHistory = []; // Store current audio analysis history
+        let showDataPoints = true; // Track data points visibility
+        let zoomLevel = 30; // Track zoom level (pixels per data point)
         
         // --- NOTE & FREQUENCY DATA ---
         const A4 = 440;
@@ -224,6 +283,9 @@
                     const audioUrl = URL.createObjectURL(audioBlob);
                     audioPlayer.src = audioUrl;
                     playBtn.disabled = false;
+                    
+                    // Show custom audio player
+                    audioPlayerContainer.style.display = 'block';
                 } else {
                     historyLog.innerHTML = 'No audio data received during recording.';
                 }
@@ -266,6 +328,9 @@
                     const fileUrl = URL.createObjectURL(file);
                     audioPlayer.src = fileUrl;
                     playBtn.disabled = false;
+                    
+                    // Show custom audio player
+                    audioPlayerContainer.style.display = 'block';
                 });
             };
             reader.readAsArrayBuffer(file);
@@ -273,9 +338,165 @@
             
         };
 
-        //TODO:
-        //Add abilility to switch between cents and % accuracy in UI
-        //Add audio player to fit with the chart
+        // --- CUSTOM AUDIO PLAYER FUNCTIONALITY ---
+        function setupAudioPlayer() {
+            // Play/Pause functionality
+            playPauseBtn.onclick = () => {
+                if (audioPlayer.paused) {
+                    audioPlayer.play();
+                    playPauseBtn.textContent = 'Pause';
+                } else {
+                    audioPlayer.pause();
+                    playPauseBtn.textContent = 'Play';
+                }
+            };
+
+            // Stop functionality
+            stopBtn.onclick = () => {
+                audioPlayer.pause();
+                audioPlayer.currentTime = 0;
+                playPauseBtn.textContent = 'Play';
+                updateProgress();
+            };
+
+            // Volume control
+            volumeSlider.oninput = (e) => {
+                audioPlayer.volume = e.target.value;
+            };
+
+            // Progress bar click to seek
+            progressContainer.onclick = (e) => {
+                if (audioPlayer.duration) {
+                    const rect = progressContainer.getBoundingClientRect();
+                    const clickX = e.clientX - rect.left;
+                    const percentage = clickX / rect.width;
+                    audioPlayer.currentTime = percentage * audioPlayer.duration;
+                }
+            };
+
+            // Audio event listeners
+            audioPlayer.addEventListener('timeupdate', updateProgress);
+            audioPlayer.addEventListener('loadedmetadata', () => {
+                totalTimeEl.textContent = formatTime(audioPlayer.duration);
+            });
+            audioPlayer.addEventListener('ended', () => {
+                playPauseBtn.textContent = 'Play';
+                updateProgress();
+            });
+        }
+
+        function updateProgress() {
+            if (audioPlayer.duration) {
+                const progress = (audioPlayer.currentTime / audioPlayer.duration) * 100;
+                progressBar.style.width = progress + '%';
+                currentTimeEl.textContent = formatTime(audioPlayer.currentTime);
+                
+                // Update chart visualization with current playback position
+                updateChartPlaybackPosition(audioPlayer.currentTime);
+            }
+        }
+
+        function formatTime(seconds) {
+            const mins = Math.floor(seconds / 60);
+            const secs = Math.floor(seconds % 60);
+            return `${mins}:${secs.toString().padStart(2, '0')}`;
+        }
+
+        function updateChartPlaybackPosition(currentTime) {
+            if (accuracyChart && currentAudioHistory.length > 0) {
+                // Find the closest data point to current time
+                const targetTime = parseFloat(currentTime.toFixed(2));
+                const dataPoint = currentAudioHistory.find(item => 
+                    Math.abs(parseFloat(item.time) - targetTime) < 0.1
+                );
+                
+                // Update chart with playback indicator
+                if (dataPoint && accuracyChart.data.datasets.length > 1) {
+                    // Remove existing playback line if it exists
+                    accuracyChart.data.datasets = accuracyChart.data.datasets.filter(
+                        dataset => dataset.label !== 'Current Position'
+                    );
+                }
+                
+                // Add playback position indicator
+                const timeIndex = currentAudioHistory.findIndex(item => 
+                    parseFloat(item.time) >= targetTime
+                );
+                
+                if (timeIndex !== -1) {
+                    const playbackData = new Array(currentAudioHistory.length).fill(null);
+                    playbackData[timeIndex] = parseFloat(currentAudioHistory[timeIndex].accuracy);
+                    
+                    accuracyChart.data.datasets.push({
+                        label: 'Current Position',
+                        data: playbackData,
+                        borderColor: '#e53e3e',
+                        backgroundColor: 'rgba(229, 62, 62, 0.1)',
+                        borderWidth: 3,
+                        fill: false,
+                        pointBackgroundColor: '#e53e3e',
+                        pointBorderColor: '#c53030',
+                        pointRadius: 6,
+                        pointHoverRadius: 8,
+                        showLine: false
+                    });
+                    
+                    accuracyChart.update('none');
+                }
+            }
+        }
+
+        // Initialize audio player when page loads
+        setupAudioPlayer();
+
+        // Initialize chart controls
+        setupChartControls();
+
+        // --- CHART CONTROLS FUNCTIONALITY ---
+        function setupChartControls() {
+            // Data points visibility toggle
+            showDataPointsCheckbox.onchange = (e) => {
+                showDataPoints = e.target.checked;
+                if (accuracyChart) {
+                    updateDataPointsVisibility();
+                }
+            };
+
+            // Zoom level control
+            zoomSlider.oninput = (e) => {
+                zoomLevel = parseInt(e.target.value);
+                zoomValue.textContent = zoomLevel + 'px';
+                // Re-render chart with new zoom level
+                if (currentAudioHistory.length > 0) {
+                    renderAccuracyChart(currentAudioHistory);
+                }
+            };
+
+            // Reset scroll button
+            resetZoomBtn.onclick = () => {
+                const chartContainer = document.querySelector('.chart-container');
+                if (chartContainer) {
+                    chartContainer.scrollLeft = 0;
+                }
+            };
+        }
+
+        function updateDataPointsVisibility() {
+            if (accuracyChart && accuracyChart.data.datasets.length > 0) {
+                // Update all datasets
+                accuracyChart.data.datasets.forEach(dataset => {
+                    if (dataset.label === 'Note Accuracy (%)') {
+                        dataset.pointRadius = showDataPoints ? 4 : 0;
+                        dataset.pointHoverRadius = showDataPoints ? 6 : 0;
+                    } else if (dataset.label === 'Current Position') {
+                        dataset.pointRadius = showDataPoints ? 6 : 0;
+                        dataset.pointHoverRadius = showDataPoints ? 8 : 0;
+                    }
+                });
+                
+                accuracyChart.update('none');
+            }
+        }
 
         // --- UI & UTILITY FUNCTIONS ---
         function renderAccuracyChart(history) {
@@ -287,12 +508,13 @@
                 return;
             }
 
-            const ctx = accuracyChartCanvas.getContext('2d');
-            
-            // Destroy existing chart if it exists
-            if (accuracyChart) {
-                accuracyChart.destroy();
-            }
+            try {
+                const ctx = accuracyChartCanvas.getContext('2d');
+                
+                // Destroy existing chart if it exists
+                if (accuracyChart) {
+                    accuracyChart.destroy();
+                }
 
             const labels = history.map(item => item.time);
             const accuracyData = history.map(item => parseFloat(item.accuracy));
@@ -333,26 +555,47 @@
                             title: {
                                 display: true,
                                 text: 'Accuracy (%)'
+
                             },
-                            grid: {
-                                color: 'rgba(0,0,0,0.1)'
+                            x: {
+                                title: {
+                                    display: true,
+                                    text: 'Time (seconds)'
+                                },
+                                grid: {
+                                    color: 'rgba(0,0,0,0.1)'
+                                },
+                                ticks: {
+                                    maxTicksLimit: Math.min(20, labels.length)
+                                }
                             }
                         },
-                        x: {
-                            title: {
+                        plugins: {
+                            legend: {
                                 display: true,
-                                text: 'Time (seconds)'
+                                position: 'top'
                             },
-                            grid: {
-                                color: 'rgba(0,0,0,0.1)'
+                            tooltip: {
+                                mode: 'index',
+                                intersect: false,
+                                callbacks: {
+                                    title: function(context) {
+                                        return `Time: ${context[0].label}`;
+                                    },
+                                    label: function(context) {
+                                        const dataIndex = context.dataIndex;
+                                        const item = processedHistory[dataIndex];
+                                        return [
+                                            `Accuracy: ${item.accuracy}%`,
+                                            `Note: ${item.noteName}`,
+                                            `Frequency: ${item.pitch}Hz`,
+                                            `Cents: ${item.cents}`
+                                        ];
+                                    }
+                                }
                             }
-                        }
-                    },
-                    plugins: {
-                        legend: {
-                            display: true,
-                            position: 'top'
                         },
+
                         tooltip: {
                             mode: 'index',
                             intersect: false,
@@ -370,6 +613,7 @@
                                         `Cents: ${item.cents}`
                                     ];
                                 }
+
                             }
                         },
                         zoom: {
@@ -387,26 +631,69 @@
                                 mode: 'x',
                             }
                         }
-                    },
-                    interaction: {
-                        mode: 'nearest',
-                        axis: 'x',
-                        intersect: false
                     }
+                });
+
+                // Update the currentAudioHistory to use processed data for playback position tracking
+                currentAudioHistory = processedHistory;
+
+            } catch (error) {
+                console.error('Error rendering chart:', error);
+                // Fallback: show a simple message instead of the chart
+                accuracyChartCanvas.style.display = 'none';
+                const chartContainer = document.querySelector('.chart-container');
+                if (!chartContainer.querySelector('.chart-error')) {
+                    const errorDiv = document.createElement('div');
+                    errorDiv.className = 'chart-error';
+                    errorDiv.innerHTML = `
+                        <div style="padding: 2rem; text-align: center; color: #666;">
+                            <p>Chart rendering failed for this audio file.</p>
+                            <p>The audio file may be too long or complex for visualization.</p>
+                            <p>You can still use the audio player and analysis log above.</p>
+                        </div>
+                    `;
+                    chartContainer.appendChild(errorDiv);
                 }
-            });
+            }
         }
 
         function displayHistory(history, type) {
             if (history.length > 0) {
-                historyLog.innerHTML = history.map(item => 
+                let logContent = history.map(item => 
                     `Time: ${item.time}s | Freq: ${item.pitch}Hz | Note: ${item.noteName} | Cents: ${item.cents} | Accuracy: ${item.accuracy}%`
                 ).join('<br>');
+                
+                // Add sampling notice if data was sampled
+                if (history.length > 1000) {
+                    logContent = `<div style="background: #fff3cd; padding: 0.5rem; margin-bottom: 0.5rem; border-radius: 4px; border-left: 4px solid #ffc107;">
+                        <strong>Note:</strong> This audio file has ${history.length} data points. The chart shows a sampled version (max 1000 points) for better performance. 
+                        All ${history.length} data points are shown in this log.
+                    </div>` + logContent;
+                }
+                
+                historyLog.innerHTML = logContent;
+                
+                // Store current audio history for chart interaction
+                currentAudioHistory = history;
+                
+                // Show custom audio player if audio is loaded
+                if (audioPlayer.src) {
+                    audioPlayerContainer.style.display = 'block';
+                }
+                
+                // Show chart controls
+                chartControls.style.display = 'flex';
                 
                 // Render the accuracy chart
                 renderAccuracyChart(history);
             } else {
                 historyLog.innerHTML = `No clear notes were detected in the ${type === 'live' ? 'recording' : 'file'}.`;
+                
+                // Hide custom audio player if no data
+                audioPlayerContainer.style.display = 'none';
+                
+                // Hide chart controls if no data
+                chartControls.style.display = 'none';
                 
                 // Clear the chart if no data
                 renderAccuracyChart([]);
