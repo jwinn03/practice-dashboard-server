@@ -6,14 +6,22 @@ const WebSocket = require('ws');
 // Create a standard HTTP server
 const server = http.createServer((req, res) => {
   // This part serves the index.html file
-  const filePath = path.join(__dirname, 'index.html');
+  let filePath = path.join(__dirname, 'index.html');
+  if (req.url === '/script.js') {
+    filePath = path.join(__dirname, 'script.js');
+  }
+
   fs.readFile(filePath, (err, data) => {
     if (err) {
       res.writeHead(500);
-      res.end('Error loading index.html');
+      res.end(`Error loading ${req.url}`);
       return;
     }
-    res.writeHead(200, { 'Content-Type': 'text/html' });
+    let contentType = 'text/html';
+    if (req.url === '/script.js') {
+      contentType = 'text/javascript';
+    }
+    res.writeHead(200, { 'Content-Type': contentType });
     res.end(data);
   });
 });
