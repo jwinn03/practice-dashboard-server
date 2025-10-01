@@ -57,11 +57,9 @@ ws.onmessage = (event) => {
         const pcmData = new Int16Array(event.data);
         if (isRecording) {
             audioChunks.push(pcmData);
-        }
-        const analysisResult = analyzePitch(pcmData, LIVE_SAMPLE_RATE);
-        if (isRecording && analysisResult) {
-             const time = (audioChunks.length * pcmData.length / LIVE_SAMPLE_RATE).toFixed(2);
-             accuracyHistory.push({ time, ...analysisResult });
+            const analysisResult = analyzePitch(pcmData, LIVE_SAMPLE_RATE);
+            const time = (audioChunks.length * pcmData.length / LIVE_SAMPLE_RATE).toFixed(2);
+            accuracyHistory.push({ time, ...analysisResult });
         }
     }
 };
@@ -80,7 +78,7 @@ window.addEventListener('load', () => {
 });
 
 function analyzePitch(pcmData, sampleRate) {
-    if (!pitchyDetector) return null;
+    if (!pitchyDetector) return { pitch: 0, noteName: 'N/A', cents: 0, accuracy: null, hasValidPitch: false };
 
     let pcmFloat32Data;
     if (pcmData instanceof Int16Array) {
@@ -105,9 +103,25 @@ function analyzePitch(pcmData, sampleRate) {
         centsEl.textContent = cents.toFixed(1);
         accuracyEl.textContent = `${accuracy.toFixed(0)}%`;
 
-        return { pitch: pitch.toFixed(1), noteName, cents: cents.toFixed(1), accuracy: accuracy.toFixed(0) };
+        return { 
+            pitch: pitch.toFixed(1), 
+            noteName, 
+            cents: cents.toFixed(1), 
+            accuracy: accuracy.toFixed(0),
+            hasValidPitch: true,
+            clarity: clarity
+        };
     }
-    return null;
+    
+    // Return low clarity indicator
+    return { 
+        pitch: 0, 
+        noteName: 'N/A', 
+        cents: 0, 
+        accuracy: null,  // null creates a gap in the chart line
+        hasValidPitch: false,
+        clarity: clarity
+    };
 }
 
 function findClosestNote(frequency) {
@@ -172,14 +186,10 @@ fileInput.onchange = (event) => {
             for (let i = 0; i < pcmData.length - ANALYSIS_BUFFER_SIZE; i += ANALYSIS_BUFFER_SIZE) {
                 const chunk = pcmData.slice(i, i + ANALYSIS_BUFFER_SIZE);
                 const result = analyzePitch(chunk, sampleRate);
-                if(result) {
-                    const time = (i / sampleRate).toFixed(2);
-                    fileAccuracyHistory.push({ time, ...result });
-                }
-                console.log(i);
-                
+                const time = (i / sampleRate).toFixed(2);
+                fileAccuracyHistory.push({ time, ...result });
             }
-            console.log("pcmdata length: " + pcmData.length);
+            
             displayHistory(fileAccuracyHistory, 'file');
             
             const fileUrl = URL.createObjectURL(file);
@@ -281,6 +291,35 @@ audioPlayer.onloadedmetadata = () => {
     playPauseBtn.disabled = false;
 };
 
+// --- LOW CLARITY BACKGROUND PLUGIN ---
+const lowClarityBackgroundPlugin = {
+    id: 'lowClarityBackground',
+    beforeDatasetsDraw(chart) {
+        const { ctx, chartArea: { left, right, top, bottom }, scales: { x, y } } = chart;
+        const history = chart.config.options.historyData;
+        
+        if (!history) return;
+        
+        ctx.save();
+        ctx.fillStyle = 'rgba(255, 200, 200, 0.2)';
+        
+        // Draw background for low clarity sections
+        for (let i = 0; i < history.length; i++) {
+            if (!history[i].hasValidPitch) {
+                const xStart = x.getPixelForValue(parseFloat(history[i].time));
+                const xEnd = i < history.length - 1 ? 
+                    x.getPixelForValue(parseFloat(history[i + 1].time)) : right;
+                
+                if (xStart >= left && xStart <= right) {
+                    ctx.fillRect(xStart, top, xEnd - xStart, bottom - top);
+                }
+            }
+        }
+        
+        ctx.restore();
+    }
+};
+
 // --- UI & UTILITY FUNCTIONS ---
 function renderAccuracyChart(history) {
     if (!history || history.length === 0) {
@@ -298,16 +337,18 @@ function renderAccuracyChart(history) {
         accuracyChart.destroy();
     }
 
-    const labels = history.map(item => item.time);
-    const accuracyData = history.map(item => parseFloat(item.accuracy));
+    // Create data points with x,y coordinates for linear scale
+    const dataPoints = history.map(item => ({
+        x: parseFloat(item.time),
+        y: item.accuracy !== null ? parseFloat(item.accuracy) : null
+    }));
 
     accuracyChart = new Chart(ctx, {
         type: 'line',
         data: {
-            labels: labels,
             datasets: [{
                 label: 'Note Accuracy (%)',
-                data: accuracyData,
+                data: dataPoints,
                 borderColor: '#4299e1',
                 backgroundColor: 'rgba(66, 153, 225, 0.1)',
                 borderWidth: 2,
@@ -315,21 +356,20 @@ function renderAccuracyChart(history) {
                 tension: 0.4,
                 pointBackgroundColor: '#4299e1',
                 pointBorderColor: '#2b6cb0',
-                pointRadius: 4,
-                pointHoverRadius: 6
+                pointRadius: 3,
+                pointHoverRadius: 5,
+                spanGaps: false  // Don't connect lines across null values
             }]
         },
-        plugins: [playheadPlugin],
+        plugins: [lowClarityBackgroundPlugin, playheadPlugin],
         options: {
             responsive: true,
             maintainAspectRatio: false,
+            historyData: history,  // Store history for plugins to access
             onClick: (event) => {
-                const activePoints = accuracyChart.getElementsAtEventForMode(event, 'nearest', { intersect: true }, false);
-                if (activePoints.length > 0) {
-                    const clickedIndex = activePoints[0].index;
-                    const time = accuracyChart.data.labels[clickedIndex];
-                    audioPlayer.currentTime = parseFloat(time);
-                }
+                const canvasPosition = Chart.helpers.getRelativePosition(event, accuracyChart);
+                const dataX = accuracyChart.scales.x.getValueForPixel(canvasPosition.x);
+                audioPlayer.currentTime = dataX;
             },
             scales: {
                 y: {
@@ -344,6 +384,7 @@ function renderAccuracyChart(history) {
                     }
                 },
                 x: {
+                    type: 'linear',  // Use linear scale for even time spacing
                     title: {
                         display: true,
                         text: 'Time (seconds)'
@@ -363,11 +404,18 @@ function renderAccuracyChart(history) {
                     intersect: false,
                     callbacks: {
                         title: function(context) {
-                            return `Time: ${context[0].label}s`;
+                            const dataIndex = context[0].dataIndex;
+                            const item = history[dataIndex];
+                            return `Time: ${item.time}s`;
                         },
                         label: function(context) {
                             const dataIndex = context.dataIndex;
                             const item = history[dataIndex];
+                            
+                            if (!item.hasValidPitch) {
+                                return 'Low Clarity - No pitch detected';
+                            }
+                            
                             return [
                                 `Accuracy: ${item.accuracy}%`,
                                 `Note: ${item.noteName}`,
