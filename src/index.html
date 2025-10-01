@@ -25,27 +25,12 @@
             position: relative; 
             height: auto; 
             width: 100%;
-            padding-bottom: 50px; /* Space for audio player */
         }
         .chart-container canvas { 
             height: 300px; 
         }
         #audioPlayer {
-            position: absolute;
-            bottom: 0;
-            left: 0;
-            right: 0;
-            width: 100%;
-            z-index: 10;
-            opacity: 0.8;
-            transition: opacity 0.2s;
-            background: rgba(255,255,255,0.8);
-            border-radius: 0 0 8px 8px;
-            padding: 5px;
-            box-sizing: border-box;
-        }
-        #audioPlayer:hover {
-            opacity: 1;
+            display: none;
         }
     </style>
 </head>
@@ -62,10 +47,11 @@
         
         <h2>Analyze WAV File</h2>
         <input type="file" id="fileInput" accept=".wav">
+        <button id="playPauseBtn" disabled>▶ Play</button>
         <div id="historyLog">Analysis history will appear here...</div>
         <div class="chart-container">
             <canvas id="accuracyChart"></canvas>
-            <audio id="audioPlayer" controls></audio>
+            <audio id="audioPlayer"></audio>
         </div>
 
         <div class="tuner">

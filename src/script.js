@@ -5,6 +5,7 @@ import { PitchDetector } from 'https://esm.sh/pitchy@4.1.0';
 const statusElement = document.getElementById('status');
 const recordBtn = document.getElementById('recordBtn');
 const playBtn = document.getElementById('playBtn');
+const playPauseBtn = document.getElementById('playPauseBtn');
 const audioPlayer = document.getElementById('audioPlayer');
 const noteEl = document.getElementById('note');
 const frequencyEl = document.getElementById('frequency');
@@ -26,6 +27,7 @@ let accuracyHistory = [];
 let pitchyDetector;
 let audioContext;
 let accuracyChart;
+let playheadAnimationId = null;
 
 // --- NOTE & FREQUENCY DATA ---
 const A4 = 440;
@@ -194,6 +196,91 @@ fileInput.onchange = (event) => {
 //Add abilility to switch between cents and % accuracy in UI
 //Add audio player to fit with the chart
 
+// --- PLAYHEAD PLUGIN ---
+const playheadPlugin = {
+    id: 'playhead',
+    afterDatasetsDraw(chart) {
+        if (!audioPlayer.src || !audioPlayer.duration) return;
+        
+        const { ctx, chartArea: { left, right, top, bottom }, scales: { x } } = chart;
+        const currentTime = audioPlayer.currentTime;
+        
+        // Find the x position based on current time
+        const xPos = x.getPixelForValue(currentTime.toFixed(2));
+        
+        // Only draw if the playhead is within the visible chart area
+        if (xPos >= left && xPos <= right) {
+            ctx.save();
+            
+            // Draw vertical line
+            ctx.strokeStyle = 'rgba(255, 99, 71, 0.8)';
+            ctx.lineWidth = 2;
+            ctx.beginPath();
+            ctx.moveTo(xPos, top);
+            ctx.lineTo(xPos, bottom);
+            ctx.stroke();
+            
+            // Draw triangle indicator at top
+            ctx.fillStyle = 'rgba(255, 99, 71, 0.8)';
+            ctx.beginPath();
+            ctx.moveTo(xPos, top);
+            ctx.lineTo(xPos - 6, top - 10);
+            ctx.lineTo(xPos + 6, top - 10);
+            ctx.closePath();
+            ctx.fill();
+            
+            ctx.restore();
+        }
+    }
+};
+
+// --- AUDIO PLAYBACK CONTROLS ---
+function updatePlayheadPosition() {
+    if (accuracyChart && !audioPlayer.paused) {
+        accuracyChart.update('none');
+        playheadAnimationId = requestAnimationFrame(updatePlayheadPosition);
+    }
+}
+
+playPauseBtn.onclick = () => {
+    if (audioPlayer.paused) {
+        audioPlayer.play();
+    } else {
+        audioPlayer.pause();
+    }
+};
+
+audioPlayer.onplay = () => {
+    playPauseBtn.textContent = '⏸ Pause';
+    updatePlayheadPosition();
+};
+
+audioPlayer.onpause = () => {
+    playPauseBtn.textContent = '▶ Play';
+    if (playheadAnimationId) {
+        cancelAnimationFrame(playheadAnimationId);
+        playheadAnimationId = null;
+    }
+    if (accuracyChart) {
+        accuracyChart.update('none');
+    }
+};
+
+audioPlayer.onended = () => {
+    playPauseBtn.textContent = '▶ Play';
+    if (playheadAnimationId) {
+        cancelAnimationFrame(playheadAnimationId);
+        playheadAnimationId = null;
+    }
+    if (accuracyChart) {
+        accuracyChart.update('none');
+    }
+};
+
+audioPlayer.onloadedmetadata = () => {
+    playPauseBtn.disabled = false;
+};
+
 // --- UI & UTILITY FUNCTIONS ---
 function renderAccuracyChart(history) {
     if (!history || history.length === 0) {
@@ -232,6 +319,7 @@ function renderAccuracyChart(history) {
                 pointHoverRadius: 6
             }]
         },
+        plugins: [playheadPlugin],
         options: {
             responsive: true,
             maintainAspectRatio: false,
