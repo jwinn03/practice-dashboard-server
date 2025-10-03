@@ -322,6 +322,7 @@ const lowClarityBackgroundPlugin = {
 
 // --- UI & UTILITY FUNCTIONS ---
 function renderAccuracyChart(history) {
+    console.log(history[0].time);
     if (!history || history.length === 0) {
         if (accuracyChart) {
             accuracyChart.destroy();
@@ -430,6 +431,10 @@ function renderAccuracyChart(history) {
                     pan: {
                         enabled: true,
                         mode: 'x'
+                    },
+                    limits: {
+                        x: {min: 0, max: history[history.length - 1].time}
+                        //alternate min: history[0].time, try casting as int to prevent rendering as 0.000000...
                     },
                     zoom: {
                         wheel: {
