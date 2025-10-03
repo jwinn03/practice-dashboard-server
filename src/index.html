@@ -14,6 +14,17 @@
         button { background-color: #4299e1; color: white; border: none; padding: 10px 20px; border-radius: 5px; cursor: pointer; font-size: 16px; margin-right: 10px; transition: background-color 0.2s; }
         button:hover { background-color: #2b6cb0; }
         button:disabled { background-color: #a0aec0; cursor: not-allowed; }
+        #playPauseBtn {
+            width: 60px;
+            height: 60px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin: 1rem auto 0;
+            padding: 0;
+            font-size: 24px;
+        }
         .tuner { margin-top: 2rem; padding: 1rem; border: 1px solid #e2e8f0; border-radius: 8px; }
         .tuner-display { display: flex; justify-content: space-around; text-align: center; font-size: 1.2em; }
         .tuner-display div { flex: 1; }
@@ -47,13 +58,12 @@
         
         <h2>Analyze WAV File</h2>
         <input type="file" id="fileInput" accept=".wav">
-        <button id="playPauseBtn" disabled>▶ Play</button>
         <div id="historyLog">Analysis history will appear here...</div>
         <div class="chart-container">
             <canvas id="accuracyChart"></canvas>
             <audio id="audioPlayer"></audio>
         </div>
-
+        <button id="playPauseBtn" disabled>▶</button>
         <div class="tuner">
             <h2>Real-Time Tuner</h2>
             <div class="tuner-display">

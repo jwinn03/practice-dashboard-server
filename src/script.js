@@ -261,12 +261,12 @@ playPauseBtn.onclick = () => {
 };
 
 audioPlayer.onplay = () => {
-    playPauseBtn.textContent = '⏸ Pause';
+    playPauseBtn.textContent = '⏸';
     updatePlayheadPosition();
 };
 
 audioPlayer.onpause = () => {
-    playPauseBtn.textContent = '▶ Play';
+    playPauseBtn.textContent = '▶';
     if (playheadAnimationId) {
         cancelAnimationFrame(playheadAnimationId);
         playheadAnimationId = null;
@@ -277,7 +277,7 @@ audioPlayer.onpause = () => {
 };
 
 audioPlayer.onended = () => {
-    playPauseBtn.textContent = '▶ Play';
+    playPauseBtn.textContent = '▶';
     if (playheadAnimationId) {
         cancelAnimationFrame(playheadAnimationId);
         playheadAnimationId = null;
@@ -350,10 +350,11 @@ function renderAccuracyChart(history) {
                 label: 'Note Accuracy (%)',
                 data: dataPoints,
                 borderColor: '#4299e1',
-                backgroundColor: 'rgba(66, 153, 225, 0.1)',
-                borderWidth: 2,
-                fill: true,
-                tension: 0.4,
+                backgroundColor: '#4299e1',
+                borderWidth: 0,
+                fill: false,
+                showLine: false,
+                tension: 0,
                 pointBackgroundColor: '#4299e1',
                 pointBorderColor: '#2b6cb0',
                 pointRadius: 3,
@@ -452,12 +453,13 @@ function renderAccuracyChart(history) {
 
 function displayHistory(history, type) {
     if (history.length > 0) {
-        historyLog.innerHTML = history.map(item => 
-            `Time: ${item.time}s | Freq: ${item.pitch}Hz | Note: ${item.noteName} | Cents: ${item.cents} | Accuracy: ${item.accuracy}%`
-        ).join('<br>');
-        
+        //historyLog.innerHTML = history.map(item => 
+        //    `Time: ${item.time}s | Freq: ${item.pitch}Hz | Note: ${item.noteName} | Cents: ${item.cents} | Accuracy: ${item.accuracy}%`
+        //).join('<br>');
+        historyLog.innerHTML = 'Analyzing...';
         // Render the accuracy chart
         renderAccuracyChart(history);
+        historyLog.innerHTML = `Displaying ${history.length} analyzed notes from the ${type === 'live' ? 'live recording' : 'uploaded file'}.`;
     } else {
         historyLog.innerHTML = `No clear notes were detected in the ${type === 'live' ? 'recording' : 'file'}.`;
         
