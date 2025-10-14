@@ -7,10 +7,10 @@ const recordBtn = document.getElementById('recordBtn');
 const playBtn = document.getElementById('playBtn');
 const playPauseBtn = document.getElementById('playPauseBtn');
 const audioPlayer = document.getElementById('audioPlayer');
-const noteEl = document.getElementById('note');
-const frequencyEl = document.getElementById('frequency');
-const centsEl = document.getElementById('cents');
-const accuracyEl = document.getElementById('accuracy');
+//const noteEl = document.getElementById('note');
+//const frequencyEl = document.getElementById('frequency');
+//const centsEl = document.getElementById('cents');
+//const accuracyEl = document.getElementById('accuracy');
 const historyLog = document.getElementById('historyLog');
 const fileInput = document.getElementById('fileInput');
 const accuracyChartCanvas = document.getElementById('accuracyChart');
@@ -98,10 +98,10 @@ function analyzePitch(pcmData, sampleRate) {
         const cents = 1200 * Math.log2(pitch / targetFreq);
         const accuracy = Math.max(0, 100 - (Math.abs(cents) * 2));
 
-        noteEl.textContent = noteName;
-        frequencyEl.textContent = pitch.toFixed(1);
-        centsEl.textContent = cents.toFixed(1);
-        accuracyEl.textContent = `${accuracy.toFixed(0)}%`;
+        //noteEl.textContent = noteName;
+        //frequencyEl.textContent = pitch.toFixed(1);
+        //centsEl.textContent = cents.toFixed(1);
+        //accuracyEl.textContent = `${accuracy.toFixed(0)}%`;
 
         return { 
             pitch: pitch.toFixed(1), 
@@ -301,7 +301,7 @@ const lowClarityBackgroundPlugin = {
         if (!history) return;
         
         ctx.save();
-        ctx.fillStyle = 'rgba(255, 200, 200, 0.2)';
+        ctx.fillStyle = 'rgba(106, 104, 253, 0.2)';
         
         // Draw background for low clarity sections
         for (let i = 0; i < history.length; i++) {
