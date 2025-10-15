@@ -56,8 +56,8 @@
             <button id="playBtn" disabled>Play</button>
         </div>
         
-        <h2>Analyze WAV File</h2>
-        <input type="file" id="fileInput" accept=".wav">
+        <h2>Analyze Audio File</h2>
+        <input type="file" id="fileInput" accept=".wav,.mp3">
         <div id="historyLog">Analysis history will appear here...</div>
         <div class="chart-container">
             <canvas id="accuracyChart"></canvas>
@@ -65,9 +65,11 @@
         </div>
         <button id="playPauseBtn" disabled>▶</button>
         <div class="options">
-            
-            <input type="checkbox" id="useCentsToggle"> Enable for use cents, disable for accuracy %
-            
+            <label for="useCentsToggle">Display metric:</label>
+            <select id="useCentsToggle">
+                <option value="cents" selected>Cents</option>
+                <option value="accuracy">Accuracy (%)</option>
+            </select>
         </div>
     </div>
 

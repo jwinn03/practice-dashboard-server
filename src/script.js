@@ -1,5 +1,4 @@
 //TODO:
-//Add abilility to switch between cents and % accuracy in UI
 
 const debugShowAllNotes = false; // Display all notes including low clarity ones in chart
 
@@ -114,7 +113,7 @@ function analyzePitch(pcmData, sampleRate) {
     return { 
         pitch: 0, 
         noteName: 'N/A', 
-        cents: 0, 
+        cents: (debugShowAllNotes ? 10 : null), 
         accuracy: (debugShowAllNotes ? 50 : null),  // null creates a gap in the chart line
         hasValidPitch: false,
         clarity: clarity
@@ -285,39 +284,43 @@ audioPlayer.onloadedmetadata = () => {
     playPauseBtn.disabled = false;
 };
 
-// Could be optimized to avoid recreating data points each toggle - maybe create both data sets the when renderAccuracyChart is run and just switch between them?
-useCentsToggle.onclick = () => {
-    console.log('Toggled useCentsToggle:', useCentsToggle.checked);
-    if (accuracyChart) {
-        // Create new set of data points with cents values
-        if (useCentsToggle.checked) {
-            const newDataPoints = accuracyHistory.map(item => ({
-                x: parseFloat(item.time),
-                y: (item.accuracy !== null) ? parseFloat(item.cents) : null
-            }));
+if (useCentsToggle) {
+    useCentsToggle.addEventListener('change', () => {
+        console.log('Selected metric:', useCentsToggle.value);
+        applyChartMetric(useCentsToggle.value);
+    });
+}
 
-            accuracyChart.data.datasets[0].data = newDataPoints;
-            accuracyChart.options.scales.y.title.text = 'Accuracy (Cents)';
-            accuracyChart.options.scales.y.min = -50;
-            accuracyChart.options.scales.y.max = 50;
-            accuracyChart.update();
-
-        }
-        // Create new set of data points with accuracy% values
-        else {
-            const newDataPoints = accuracyHistory.map(item => ({
-                x: parseFloat(item.time),
-                y: (item.accuracy !== null) ? parseFloat(item.accuracy) : null
-            }));
-
-            accuracyChart.data.datasets[0].data = newDataPoints;
-            accuracyChart.options.scales.y.title.text = 'Accuracy (%)';
-            accuracyChart.options.scales.y.min = 0;
-            accuracyChart.options.scales.y.max = 100;
-            accuracyChart.update();
-        }
+function applyChartMetric(metric) {
+    if (!accuracyChart) {
+        return;
     }
-};
+
+    const dataPoints = accuracyHistory.map(item => ({
+        x: parseFloat(item.time),
+        y: item.accuracy !== null
+            ? (metric == 'cents' ? parseFloat(item.cents) : parseFloat(item.accuracy))
+            : null
+    }));
+
+    accuracyChart.data.datasets[0].data = dataPoints;
+
+    if (metric == 'cents') {
+        accuracyChart.data.datasets[0].label = 'Note Accuracy (Cents)';
+        accuracyChart.options.scales.y.title.text = 'Cents';
+        accuracyChart.options.scales.y.min = -50;
+        accuracyChart.options.scales.y.max = 50;
+        accuracyChart.options.scales.y.beginAtZero = false;
+    } else {
+        accuracyChart.data.datasets[0].label = 'Note Accuracy (%)';
+        accuracyChart.options.scales.y.title.text = 'Accuracy (%)';
+        accuracyChart.options.scales.y.min = 0;
+        accuracyChart.options.scales.y.max = 100;
+        accuracyChart.options.scales.y.beginAtZero = true;
+    }
+
+    accuracyChart.update();
+}
 
 // --- LOW CLARITY BACKGROUND PLUGIN ---
 const lowClarityBackgroundPlugin = {
@@ -366,18 +369,24 @@ function renderAccuracyChart(history) {
         accuracyChart.destroy();
     }
 
-    // Create data points with x,y coordinates for linear scale
+    const selectedMetric = useCentsToggle ? useCentsToggle.value : 'accuracy';
     const dataPoints = history.map(item => ({
         x: parseFloat(item.time),
-        y: (item.accuracy !== null) ? parseFloat(item.accuracy) : null
+        y: (item.accuracy !== null)
+            ? parseFloat(selectedMetric == 'cents' ? item.cents : item.accuracy)
+            : null
         //y: (item.accuracy !== null || debugShowAllNotes) ? parseFloat(item.accuracy) : null
     }));
+    const datasetLabel = selectedMetric == 'cents' ? 'Note Accuracy (Cents)' : 'Note Accuracy (%)';
+    const yAxisMin = selectedMetric == 'cents' ? -50 : 0;
+    const yAxisMax = selectedMetric == 'cents' ? 50 : 100;
+    const beginAtZero = selectedMetric != 'cents';
 
     accuracyChart = new Chart(ctx, {
         type: 'line',
         data: {
             datasets: [{
-                label: 'Note Accuracy (%)',
+                label: datasetLabel,
                 data: dataPoints,
                 borderColor: '#4299e1',
                 backgroundColor: '#4299e1',
@@ -404,11 +413,12 @@ function renderAccuracyChart(history) {
             },
             scales: {
                 y: {
-                    beginAtZero: true,
-                    max: 100,
+                    beginAtZero,
+                    min: yAxisMin,
+                    max: yAxisMax,
                     title: {
                         display: true,
-                        text: 'Accuracy (%)'
+                        text: selectedMetric === 'cents' ? 'Cents' : 'Accuracy (%)'
                     },
                     grid: {
                         color: 'rgba(0,0,0,0.1)'
@@ -483,6 +493,8 @@ function renderAccuracyChart(history) {
             }
         }
     });
+
+    //applyChartMetric(selectedMetric);
 }
 
 function displayHistory(history, type) {
