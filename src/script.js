@@ -1,3 +1,8 @@
+//TODO:
+//Add abilility to switch between cents and % accuracy in UI
+
+const debugShowAllNotes = false; // Display all notes including low clarity ones in chart
+
 // Import the PitchDetector class from the pitchy ES Module
 import { PitchDetector } from 'https://esm.sh/pitchy@4.1.0';
 
@@ -7,13 +12,10 @@ const recordBtn = document.getElementById('recordBtn');
 const playBtn = document.getElementById('playBtn');
 const playPauseBtn = document.getElementById('playPauseBtn');
 const audioPlayer = document.getElementById('audioPlayer');
-//const noteEl = document.getElementById('note');
-//const frequencyEl = document.getElementById('frequency');
-//const centsEl = document.getElementById('cents');
-//const accuracyEl = document.getElementById('accuracy');
 const historyLog = document.getElementById('historyLog');
 const fileInput = document.getElementById('fileInput');
 const accuracyChartCanvas = document.getElementById('accuracyChart');
+const useCentsToggle = document.getElementById('useCentsToggle');
 
 // Audio & Recording Constants
 const LIVE_SAMPLE_RATE = 16000;
@@ -98,11 +100,6 @@ function analyzePitch(pcmData, sampleRate) {
         const cents = 1200 * Math.log2(pitch / targetFreq);
         const accuracy = Math.max(0, 100 - (Math.abs(cents) * 2));
 
-        //noteEl.textContent = noteName;
-        //frequencyEl.textContent = pitch.toFixed(1);
-        //centsEl.textContent = cents.toFixed(1);
-        //accuracyEl.textContent = `${accuracy.toFixed(0)}%`;
-
         return { 
             pitch: pitch.toFixed(1), 
             noteName, 
@@ -118,7 +115,7 @@ function analyzePitch(pcmData, sampleRate) {
         pitch: 0, 
         noteName: 'N/A', 
         cents: 0, 
-        accuracy: null,  // null creates a gap in the chart line
+        accuracy: (debugShowAllNotes ? 50 : null),  // null creates a gap in the chart line
         hasValidPitch: false,
         clarity: clarity
     };
@@ -181,16 +178,16 @@ fileInput.onchange = (event) => {
         audioContext.decodeAudioData(e.target.result, (audioBuffer) => {
             const pcmData = audioBuffer.getChannelData(0);
             const sampleRate = audioBuffer.sampleRate;
-            const fileAccuracyHistory = [];
+            accuracyHistory = [];
 
             for (let i = 0; i < pcmData.length - ANALYSIS_BUFFER_SIZE; i += ANALYSIS_BUFFER_SIZE) {
                 const chunk = pcmData.slice(i, i + ANALYSIS_BUFFER_SIZE);
                 const result = analyzePitch(chunk, sampleRate);
                 const time = (i / sampleRate).toFixed(2);
-                fileAccuracyHistory.push({ time, ...result });
+                accuracyHistory.push({ time, ...result });
             }
             
-            displayHistory(fileAccuracyHistory, 'file');
+            displayHistory(accuracyHistory, 'file');
             
             const fileUrl = URL.createObjectURL(file);
             audioPlayer.src = fileUrl;
@@ -202,9 +199,6 @@ fileInput.onchange = (event) => {
     
 };
 
-//TODO:
-//Add abilility to switch between cents and % accuracy in UI
-//Add audio player to fit with the chart
 
 // --- PLAYHEAD PLUGIN ---
 const playheadPlugin = {
@@ -291,6 +285,40 @@ audioPlayer.onloadedmetadata = () => {
     playPauseBtn.disabled = false;
 };
 
+// Could be optimized to avoid recreating data points each toggle - maybe create both data sets the when renderAccuracyChart is run and just switch between them?
+useCentsToggle.onclick = () => {
+    console.log('Toggled useCentsToggle:', useCentsToggle.checked);
+    if (accuracyChart) {
+        // Create new set of data points with cents values
+        if (useCentsToggle.checked) {
+            const newDataPoints = accuracyHistory.map(item => ({
+                x: parseFloat(item.time),
+                y: (item.accuracy !== null) ? parseFloat(item.cents) : null
+            }));
+
+            accuracyChart.data.datasets[0].data = newDataPoints;
+            accuracyChart.options.scales.y.title.text = 'Accuracy (Cents)';
+            accuracyChart.options.scales.y.min = -50;
+            accuracyChart.options.scales.y.max = 50;
+            accuracyChart.update();
+
+        }
+        // Create new set of data points with accuracy% values
+        else {
+            const newDataPoints = accuracyHistory.map(item => ({
+                x: parseFloat(item.time),
+                y: (item.accuracy !== null) ? parseFloat(item.accuracy) : null
+            }));
+
+            accuracyChart.data.datasets[0].data = newDataPoints;
+            accuracyChart.options.scales.y.title.text = 'Accuracy (%)';
+            accuracyChart.options.scales.y.min = 0;
+            accuracyChart.options.scales.y.max = 100;
+            accuracyChart.update();
+        }
+    }
+};
+
 // --- LOW CLARITY BACKGROUND PLUGIN ---
 const lowClarityBackgroundPlugin = {
     id: 'lowClarityBackground',
@@ -304,11 +332,12 @@ const lowClarityBackgroundPlugin = {
         ctx.fillStyle = 'rgba(106, 104, 253, 0.2)';
         
         // Draw background for low clarity sections
+        // Draws transparent rect for every low clarity point, instead of more intelligently finding stretches of mostly low clarity points - best way to do this?
         for (let i = 0; i < history.length; i++) {
             if (!history[i].hasValidPitch) {
                 const xStart = x.getPixelForValue(parseFloat(history[i].time));
                 const xEnd = i < history.length - 1 ? 
-                    x.getPixelForValue(parseFloat(history[i + 1].time)) : right;
+                    x.getPixelForValue(parseFloat(history[i + 1].time)) : right; 
                 
                 if (xStart >= left && xStart <= right) {
                     ctx.fillRect(xStart, top, xEnd - xStart, bottom - top);
@@ -322,7 +351,6 @@ const lowClarityBackgroundPlugin = {
 
 // --- UI & UTILITY FUNCTIONS ---
 function renderAccuracyChart(history) {
-    console.log(history[0].time);
     if (!history || history.length === 0) {
         if (accuracyChart) {
             accuracyChart.destroy();
@@ -341,7 +369,8 @@ function renderAccuracyChart(history) {
     // Create data points with x,y coordinates for linear scale
     const dataPoints = history.map(item => ({
         x: parseFloat(item.time),
-        y: item.accuracy !== null ? parseFloat(item.accuracy) : null
+        y: (item.accuracy !== null) ? parseFloat(item.accuracy) : null
+        //y: (item.accuracy !== null || debugShowAllNotes) ? parseFloat(item.accuracy) : null
     }));
 
     accuracyChart = new Chart(ctx, {
