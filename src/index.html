@@ -64,13 +64,22 @@
             <audio id="audioPlayer"></audio>
         </div>
         <button id="playPauseBtn" disabled>▶</button>
-        <div class="options">
+
+        <h2>Options</h2>
+        <div>
             <label for="useCentsToggle">Display metric:</label>
             <select id="useCentsToggle">
                 <option value="cents" selected>Cents</option>
                 <option value="accuracy">Accuracy (%)</option>
             </select>
         </div>
+        <div>
+            <label for="standardPitchInput">Standard Pitch (A4):</label>
+            <input type="number" id="standardPitchInput" value="440">
+            <label for="standardPitchInput">Hz</label>
+            <button id="submitPitchBtn">Submit</button>
+        </div>
+        
     </div>
 
     <!-- SCRIPT IS NOW A MODULE TO SUPPORT ESM IMPORT -->

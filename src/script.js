@@ -1,4 +1,6 @@
 //TODO:
+// replace findClosestNote linear search with binary search
+// add refresh chart button/function that redoes note/accuracy calculations (don't need to redo frequency) and re-renders chart
 
 const debugShowAllNotes = false; // Display all notes including low clarity ones in chart
 
@@ -15,6 +17,8 @@ const historyLog = document.getElementById('historyLog');
 const fileInput = document.getElementById('fileInput');
 const accuracyChartCanvas = document.getElementById('accuracyChart');
 const useCentsToggle = document.getElementById('useCentsToggle');
+const standardPitchInput = document.getElementById('standardPitchInput');
+const submitPitchBtn = document.getElementById('submitPitchBtn');
 
 // Audio & Recording Constants
 const LIVE_SAMPLE_RATE = 16000;
@@ -31,17 +35,22 @@ let accuracyChart;
 let playheadAnimationId = null;
 
 // --- NOTE & FREQUENCY DATA ---
-const A4 = 440;
+let A4 = 440; // Want to keep current A4 value accessible
 const noteNames = ["A", "A#", "B", "C", "C#", "D", "D#", "E", "F", "F#", "G", "G#"];
-const standardFrequencies = {};
-for (let i = 0; i < 88; i++) {
-    const freq = A4 * Math.pow(2, (i - 48) / 12);
-    const octave = Math.floor((i + 9) / 12); //change - remove -1
-    const noteName = noteNames[i % 12];
-    standardFrequencies[freq] = `${noteName}${octave}`;
+let standardFrequencies = {};
+let sortedFreqs = [];
+function generateStandardFrequencies() {
+    standardFrequencies = {};
+    //sortedFreqs = [];
+    for (let i = 0; i < 88; i++) {
+        const freq = A4 * Math.pow(2, (i - 48) / 12);
+        const octave = Math.floor((i + 9) / 12); //change - remove -1
+        const noteName = noteNames[i % 12];
+        standardFrequencies[freq] = `${noteName}${octave}`;
+    }
+    sortedFreqs = Object.keys(standardFrequencies).map(Number).sort((a, b) => a - b);
 }
-const sortedFreqs = Object.keys(standardFrequencies).map(Number).sort((a, b) => a - b);
-
+generateStandardFrequencies(); // Move this default initialization somewhere else?
 
 // --- WEBSOCKET SETUP ---
 const ws = new WebSocket(`ws://${window.location.host}`);
@@ -120,6 +129,7 @@ function analyzePitch(pcmData, sampleRate) {
     };
 }
 
+// Possible source of slowness? Every time function is called, it iterates through all 88 possible closest notes
 function findClosestNote(frequency) {
     let closestFreq = sortedFreqs[0];
     for (let i = 1; i < sortedFreqs.length; i++) {
@@ -170,8 +180,8 @@ fileInput.onchange = (event) => {
 
     const reader = new FileReader();
     reader.onload = (e) => {
-        //historyLog.innerHTML = 'Analyzing file...';
-        //historyLog.innerHTML = JSON.stringify(standardFrequencies, null, 2);
+        historyLog.innerHTML = 'Analyzing file...';
+        console.log(JSON.stringify(sortedFreqs, null, 2));
 
         
         audioContext.decodeAudioData(e.target.result, (audioBuffer) => {
@@ -208,14 +218,31 @@ const playheadPlugin = {
         const { ctx, chartArea: { left, right, top, bottom }, scales: { x } } = chart;
         const currentTime = audioPlayer.currentTime;
         
-        // Find the x position based on current time
+        // Auto-scroll the chart if the playhead goes beyond the current x-axis range
+        const xMin = x.min;
+        const xMax = x.max;
+        const visibleRange = xMax - xMin;
+        
+        if (currentTime >= xMax && currentTime <= audioPlayer.duration) {
+            const newMin = xMax;
+            const newMax = newMin + visibleRange;
+            
+            if (newMax < audioPlayer.duration) {
+                chart.options.scales.x.min = newMin;
+                chart.options.scales.x.max = newMax;
+            }
+            else { // Scroll to end without going beyond
+                chart.options.scales.x.min = audioPlayer.duration - visibleRange;
+                chart.options.scales.x.max = audioPlayer.duration;
+            }
+        }
+        
+        // Draw the playhead
         const xPos = x.getPixelForValue(currentTime.toFixed(2));
         
-        // Only draw if the playhead is within the visible chart area
         if (xPos >= left && xPos <= right) {
             ctx.save();
             
-            // Draw vertical line
             ctx.strokeStyle = 'rgba(255, 99, 71, 0.8)';
             ctx.lineWidth = 2;
             ctx.beginPath();
@@ -223,7 +250,6 @@ const playheadPlugin = {
             ctx.lineTo(xPos, bottom);
             ctx.stroke();
             
-            // Draw triangle indicator at top
             ctx.fillStyle = 'rgba(255, 99, 71, 0.8)';
             ctx.beginPath();
             ctx.moveTo(xPos, top);
@@ -284,10 +310,11 @@ audioPlayer.onloadedmetadata = () => {
     playPauseBtn.disabled = false;
 };
 
+// --- OPTIONS ---
 if (useCentsToggle) {
     useCentsToggle.addEventListener('change', () => {
-        console.log('Selected metric:', useCentsToggle.value);
         applyChartMetric(useCentsToggle.value);
+        console.log('Selected metric:', useCentsToggle.value);
     });
 }
 
@@ -320,6 +347,17 @@ function applyChartMetric(metric) {
     }
 
     accuracyChart.update();
+}
+
+submitPitchBtn.onclick = () => {
+    const inputFreq = parseFloat(standardPitchInput.value);
+    if (isNaN(inputFreq)) {
+        alert('Please enter a valid frequency');
+        return;
+    }
+    A4 = inputFreq;
+    generateStandardFrequencies();
+    console.log('Standard pitch frequency set to:', inputFreq);
 }
 
 // --- LOW CLARITY BACKGROUND PLUGIN ---
@@ -483,6 +521,9 @@ function renderAccuracyChart(history) {
                             enabled: true
                         },
                         mode: 'x',
+                        animation: {
+                            duration: 0
+                        }
                     }
                 }
             },
@@ -502,7 +543,7 @@ function displayHistory(history, type) {
         //historyLog.innerHTML = history.map(item => 
         //    `Time: ${item.time}s | Freq: ${item.pitch}Hz | Note: ${item.noteName} | Cents: ${item.cents} | Accuracy: ${item.accuracy}%`
         //).join('<br>');
-        historyLog.innerHTML = 'Analyzing...';
+        
         // Render the accuracy chart
         renderAccuracyChart(history);
         historyLog.innerHTML = `Displaying ${history.length} analyzed notes from the ${type === 'live' ? 'live recording' : 'uploaded file'}.`;
