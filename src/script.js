@@ -1,6 +1,7 @@
 //TODO:
 // replace findClosestNote linear search with binary search
 // add refresh chart button/function that redoes note/accuracy calculations (don't need to redo frequency) and re-renders chart
+// add direct microphone input
 
 const debugShowAllNotes = false; // Display all notes including low clarity ones in chart
 
@@ -129,8 +130,9 @@ function analyzePitch(pcmData, sampleRate) {
     };
 }
 
-// Possible source of slowness? Every time function is called, it iterates through all 88 possible closest notes
+// Alternate linear search implementation commented
 function findClosestNote(frequency) {
+    /*
     let closestFreq = sortedFreqs[0];
     for (let i = 1; i < sortedFreqs.length; i++) {
         if (Math.abs(sortedFreqs[i] - frequency) < Math.abs(closestFreq - frequency)) {
@@ -138,6 +140,32 @@ function findClosestNote(frequency) {
         }
     }
     return { targetFreq: closestFreq, noteName: standardFrequencies[closestFreq] };
+    */
+    let closestFreq = sortedFreqs[0];
+    let low = 0;
+    let high = sortedFreqs.length - 1 - 1;
+
+    while (low <= high) {
+        let mid = Math.floor((low + high) / 2);
+        if (sortedFreqs[mid] <= frequency && ( /* mid === sortedFreqs.length - 1 || */ frequency < sortedFreqs[mid + 1])) {
+            if (Math.abs(sortedFreqs[mid] - frequency) < Math.abs(sortedFreqs[mid + 1] - frequency)) {
+                closestFreq = sortedFreqs[mid];
+            } 
+            else {
+                closestFreq = sortedFreqs[mid + 1];
+            }
+            return { targetFreq: closestFreq, noteName: standardFrequencies[closestFreq] };
+        }
+        if (sortedFreqs[mid] < frequency) {
+            low = mid + 1;
+        } 
+        else if (sortedFreqs[mid] > frequency) {
+            high = mid - 1;
+        }
+    }
+
+    console.log('Did not find closest note for frequency:', frequency);
+    
 }
 
 
