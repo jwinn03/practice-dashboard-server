@@ -1,5 +1,4 @@
 //TODO:
-// replace findClosestNote linear search with binary search
 // add refresh chart button/function that redoes note/accuracy calculations (don't need to redo frequency) and re-renders chart
 // add direct microphone input
 
@@ -130,7 +129,7 @@ function analyzePitch(pcmData, sampleRate) {
     };
 }
 
-// Alternate linear search implementation commented
+// Given detected frequency, find the closest in-tune note; alternate linear search implementation commented
 function findClosestNote(frequency) {
     /*
     let closestFreq = sortedFreqs[0];
@@ -141,12 +140,20 @@ function findClosestNote(frequency) {
     }
     return { targetFreq: closestFreq, noteName: standardFrequencies[closestFreq] };
     */
+    
+    if (frequency <= sortedFreqs[0]) {
+        return { targetFreq: sortedFreqs[0], noteName: standardFrequencies[sortedFreqs[0]] };
+    }
+    else if (frequency >= sortedFreqs[sortedFreqs.length - 1]) {
+        return { targetFreq: sortedFreqs[sortedFreqs.length - 1], noteName: standardFrequencies[sortedFreqs[sortedFreqs.length - 1]] };
+    }
+    
     let closestFreq = sortedFreqs[0];
     let low = 0;
-    let high = sortedFreqs.length - 1 - 1;
-
+    let high = sortedFreqs.length - 1;
+    
     while (low <= high) {
-        let mid = Math.floor((low + high) / 2);
+        let mid = Math.floor((high + low) / 2);
         if (sortedFreqs[mid] <= frequency && ( /* mid === sortedFreqs.length - 1 || */ frequency < sortedFreqs[mid + 1])) {
             if (Math.abs(sortedFreqs[mid] - frequency) < Math.abs(sortedFreqs[mid + 1] - frequency)) {
                 closestFreq = sortedFreqs[mid];
@@ -163,9 +170,8 @@ function findClosestNote(frequency) {
             high = mid - 1;
         }
     }
-
-    console.log('Did not find closest note for frequency:', frequency);
     
+    console.log('Did not find closest note (this means there is something wrong with the code); frequency: ', frequency);
 }
 
 
@@ -209,21 +215,21 @@ fileInput.onchange = (event) => {
     const reader = new FileReader();
     reader.onload = (e) => {
         historyLog.innerHTML = 'Analyzing file...';
-        console.log(JSON.stringify(sortedFreqs, null, 2));
+        //console.log(JSON.stringify(sortedFreqs, null, 2));
 
         
         audioContext.decodeAudioData(e.target.result, (audioBuffer) => {
             const pcmData = audioBuffer.getChannelData(0);
             const sampleRate = audioBuffer.sampleRate;
             accuracyHistory = [];
-
+            
             for (let i = 0; i < pcmData.length - ANALYSIS_BUFFER_SIZE; i += ANALYSIS_BUFFER_SIZE) {
                 const chunk = pcmData.slice(i, i + ANALYSIS_BUFFER_SIZE);
                 const result = analyzePitch(chunk, sampleRate);
                 const time = (i / sampleRate).toFixed(2);
                 accuracyHistory.push({ time, ...result });
             }
-            
+
             displayHistory(accuracyHistory, 'file');
             
             const fileUrl = URL.createObjectURL(file);
