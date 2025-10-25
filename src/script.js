@@ -216,13 +216,12 @@ fileInput.onchange = (event) => {
     reader.onload = (e) => {
         historyLog.innerHTML = 'Analyzing file...';
         //console.log(JSON.stringify(sortedFreqs, null, 2));
-
         
+        // audioContext sample rate is 384000, resulting in (384000 / 2048) ~= 187 samples per second regardless of uploaded file's original sample rate 
         audioContext.decodeAudioData(e.target.result, (audioBuffer) => {
             const pcmData = audioBuffer.getChannelData(0);
             const sampleRate = audioBuffer.sampleRate;
             accuracyHistory = [];
-            
             for (let i = 0; i < pcmData.length - ANALYSIS_BUFFER_SIZE; i += ANALYSIS_BUFFER_SIZE) {
                 const chunk = pcmData.slice(i, i + ANALYSIS_BUFFER_SIZE);
                 const result = analyzePitch(chunk, sampleRate);
@@ -239,7 +238,8 @@ fileInput.onchange = (event) => {
     };
     reader.readAsArrayBuffer(file);
 
-    
+    // Allow re-selection of the same file
+    event.target.value = null;
 };
 
 
