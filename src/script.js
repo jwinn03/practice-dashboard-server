@@ -25,17 +25,10 @@ const LIVE_SAMPLE_RATE = 16000;
 const RECORD_DURATION_MS = 5000;
 const ANALYSIS_BUFFER_SIZE = 2048;
 
-// Chart Decimation Settings
-const MAX_POINTS_BASE = 2000; // Maximum points to show when fully zoomed out
-const POINTS_PER_SECOND_ZOOMED = 500; // Target points per second when zoomed in
-const ZOOM_BUFFER_SECONDS = 2; // Extra seconds of data to load outside visible range
-
 // State Variables
 let isRecording = false;
 let audioChunks = [];
 let accuracyHistory = [];
-let fullChartData = []; // Store complete undecimated dataset
-let currentChartData = []; // Currently rendered (possibly decimated) data
 let pitchyDetector;
 let audioContext;
 let accuracyChart;
@@ -129,9 +122,9 @@ function analyzePitch(pcmData, sampleRate) {
     return { 
         pitch: 0, 
         noteName: 'N/A', 
-        cents: (debugShowAllNotes ? 10 : null), 
-        accuracy: (debugShowAllNotes ? 50 : null),  // null creates a gap in the chart line
-        hasValidPitch: false,
+        cents: (debugShowAllNotes ? 0 : null), // null values are not plotted by chart, creating gaps
+        accuracy: (debugShowAllNotes ? 50 : null),  
+        hasValidPitch: (debugShowAllNotes ? true : false), // yes the conditional operator is redundant, it better illustrates the function of debugShowAllNotes
         clarity: clarity
     };
 }
@@ -251,7 +244,6 @@ fileInput.onchange = (event) => {
 
 
 // --- PLAYHEAD PLUGIN ---
-let lastScrollUpdate = 0;
 const playheadPlugin = {
     id: 'playhead',
     afterDatasetsDraw(chart) {
@@ -273,15 +265,9 @@ const playheadPlugin = {
                 chart.options.scales.x.min = newMin;
                 chart.options.scales.x.max = newMax;
             }
-            else {
+            else { // Scroll to end without going beyond
                 chart.options.scales.x.min = audioPlayer.duration - visibleRange;
                 chart.options.scales.x.max = audioPlayer.duration;
-            }
-            
-            const now = Date.now();
-            if (now - lastScrollUpdate > 200) {
-                lastScrollUpdate = now;
-                requestAnimationFrame(() => updateChartDataForZoomLevel(chart, true));
             }
         }
         
@@ -371,12 +357,14 @@ function applyChartMetric(metric) {
         return;
     }
 
-    fullChartData = accuracyHistory.map(item => ({
+    const dataPoints = accuracyHistory.map(item => ({
         x: parseFloat(item.time),
         y: item.accuracy !== null
             ? (metric == 'cents' ? parseFloat(item.cents) : parseFloat(item.accuracy))
             : null
     }));
+
+    accuracyChart.data.datasets[0].data = dataPoints;
 
     if (metric == 'cents') {
         accuracyChart.data.datasets[0].label = 'Note Accuracy (Cents)';
@@ -392,7 +380,7 @@ function applyChartMetric(metric) {
         accuracyChart.options.scales.y.beginAtZero = true;
     }
 
-    updateChartDataForZoomLevel(accuracyChart);
+    accuracyChart.update();
 }
 
 submitPitchBtn.onclick = () => {
@@ -436,138 +424,6 @@ const lowClarityBackgroundPlugin = {
     }
 };
 
-// --- DATA DECIMATION ---
-function decimateData(data, threshold) {
-    if (data.length <= threshold) {
-        return data;
-    }
-
-    const decimated = [];
-    const bucketSize = (data.length - 2) / (threshold - 2);
-    
-    decimated.push(data[0]);
-    
-    for (let i = 0; i < threshold - 2; i++) {
-        const avgRangeStart = Math.floor((i + 0) * bucketSize) + 1;
-        const avgRangeEnd = Math.floor((i + 1) * bucketSize) + 1;
-        const avgRangeLength = avgRangeEnd - avgRangeStart;
-        
-        let avgX = 0;
-        let avgY = 0;
-        let validPoints = 0;
-        
-        for (let j = avgRangeStart; j < avgRangeEnd; j++) {
-            if (data[j].y !== null) {
-                avgX += data[j].x;
-                avgY += data[j].y;
-                validPoints++;
-            }
-        }
-        
-        if (validPoints > 0) {
-            avgX /= validPoints;
-            avgY /= validPoints;
-        } else {
-            avgX = data[avgRangeStart].x;
-            avgY = null;
-        }
-        
-        const rangeOffs = (i + 1) * bucketSize + 1;
-        const rangeTo = Math.floor((i + 2) * bucketSize) + 1;
-        
-        const pointAX = avgX;
-        const pointAY = avgY;
-        
-        let maxArea = -1;
-        let maxAreaPoint = null;
-        
-        for (let j = avgRangeEnd; j < rangeTo; j++) {
-            if (j >= data.length) break;
-            
-            const area = Math.abs(
-                (pointAX - decimated[decimated.length - 1].x) * ((data[j].y !== null ? data[j].y : 0) - decimated[decimated.length - 1].y) -
-                (pointAX - data[j].x) * (pointAY !== null ? pointAY : 0 - decimated[decimated.length - 1].y)
-            );
-            
-            if (area > maxArea) {
-                maxArea = area;
-                maxAreaPoint = data[j];
-            }
-        }
-        
-        if (maxAreaPoint) {
-            decimated.push(maxAreaPoint);
-        }
-    }
-    
-    decimated.push(data[data.length - 1]);
-    
-    return decimated;
-}
-
-let zoomUpdateTimeout = null;
-function updateChartDataForZoomLevel(chart, immediate = false) {
-    if (!chart || !fullChartData || fullChartData.length === 0) {
-        return;
-    }
-    
-    if (!immediate && zoomUpdateTimeout) {
-        clearTimeout(zoomUpdateTimeout);
-    }
-    
-    const performUpdate = () => {
-        const xScale = chart.scales.x;
-        const xMin = xScale.min !== undefined ? xScale.min : 0;
-        const xMax = xScale.max !== undefined ? xScale.max : fullChartData[fullChartData.length - 1].x;
-        const visibleRange = xMax - xMin;
-        const totalRange = fullChartData[fullChartData.length - 1].x - fullChartData[0].x;
-        
-        const tolerance = 0.01;
-        const isFullyZoomedOut = (xMin - tolerance <= fullChartData[0].x && xMax + tolerance >= fullChartData[fullChartData.length - 1].x);
-        
-        let finalData;
-        
-        if (isFullyZoomedOut) {
-            if (fullChartData.length > MAX_POINTS_BASE) {
-                finalData = decimateData(fullChartData, MAX_POINTS_BASE);
-                console.log(`Fully zoomed out: decimated ${fullChartData.length} to ${finalData.length}`);
-            } else {
-                finalData = fullChartData;
-            }
-        } else {
-            const bufferMin = Math.max(fullChartData[0].x, xMin - ZOOM_BUFFER_SECONDS);
-            const bufferMax = Math.min(fullChartData[fullChartData.length - 1].x, xMax + ZOOM_BUFFER_SECONDS);
-            
-            const visibleData = fullChartData.filter(p => 
-                p.x >= bufferMin && p.x <= bufferMax
-            );
-            
-            const targetPoints = Math.min(
-                visibleData.length,
-                Math.max(MAX_POINTS_BASE, Math.floor(visibleRange * POINTS_PER_SECOND_ZOOMED))
-            );
-            
-            if (visibleData.length > targetPoints) {
-                finalData = decimateData(visibleData, targetPoints);
-                console.log(`Zoom update: ${visibleData.length} points decimated to ${finalData.length}`);
-            } else {
-                finalData = visibleData;
-                console.log(`Zoom update: showing all ${finalData.length} points`);
-            }
-        }
-        
-        currentChartData = finalData;
-        chart.data.datasets[0].data = finalData;
-        chart.update('none');
-    };
-    
-    if (immediate) {
-        performUpdate();
-    } else {
-        zoomUpdateTimeout = setTimeout(performUpdate, 16);
-    }
-}
-
 // --- UI & UTILITY FUNCTIONS ---
 function renderAccuracyChart(history) {
     if (!history || history.length === 0) {
@@ -586,24 +442,13 @@ function renderAccuracyChart(history) {
     }
 
     const selectedMetric = useCentsToggle ? useCentsToggle.value : 'accuracy';
-    fullChartData = history.map(item => ({
+    const dataPoints = history.map(item => ({
         x: parseFloat(item.time),
-        y: (item.accuracy !== null)
+        y: (item.hasValidPitch == true)
             ? parseFloat(selectedMetric == 'cents' ? item.cents : item.accuracy)
             : null
         //y: (item.accuracy !== null || debugShowAllNotes) ? parseFloat(item.accuracy) : null
     }));
-    
-    let dataPoints;
-    if (fullChartData.length > MAX_POINTS_BASE) {
-        console.log(`Initial render: decimating ${fullChartData.length} points to ~${MAX_POINTS_BASE}`);
-        dataPoints = decimateData(fullChartData, MAX_POINTS_BASE);
-        console.log(`Decimated to ${dataPoints.length} points`);
-    } else {
-        dataPoints = fullChartData;
-    }
-    currentChartData = dataPoints;
-    
     const datasetLabel = selectedMetric == 'cents' ? 'Note Accuracy (Cents)' : 'Note Accuracy (%)';
     const yAxisMin = selectedMetric == 'cents' ? -50 : 0;
     const yAxisMax = selectedMetric == 'cents' ? 50 : 100;
@@ -630,6 +475,9 @@ function renderAccuracyChart(history) {
         },
         plugins: [lowClarityBackgroundPlugin, playheadPlugin],
         options: {
+            parsing: false,
+            normalized: true,
+            animation: false,
             responsive: true,
             maintainAspectRatio: false,
             historyData: history,  // Store history for plugins to access
@@ -672,23 +520,13 @@ function renderAccuracyChart(history) {
                     intersect: false,
                     callbacks: {
                         title: function(context) {
-                            const dataPoint = context[0].raw;
-                            const timeValue = dataPoint.x;
-                            const item = history.find(h => Math.abs(parseFloat(h.time) - timeValue) < 0.01);
-                            
-                            if (item) {
-                                return `Time: ${item.time}s`;
-                            }
-                            return `Time: ${timeValue.toFixed(2)}s`;
+                            const dataIndex = context[0].dataIndex;
+                            const item = history[dataIndex];
+                            return `Time: ${item.time}s`;
                         },
                         label: function(context) {
-                            const dataPoint = context.raw;
-                            const timeValue = dataPoint.x;
-                            const item = history.find(h => Math.abs(parseFloat(h.time) - timeValue) < 0.01);
-                            
-                            if (!item) {
-                                return 'No data';
-                            }
+                            const dataIndex = context.dataIndex;
+                            const item = history[dataIndex];
                             
                             if (!item.hasValidPitch) {
                                 return 'Low Clarity - No pitch detected';
@@ -707,8 +545,8 @@ function renderAccuracyChart(history) {
                     pan: {
                         enabled: true,
                         mode: 'x',
-                        onPan: ({chart}) => {
-                            updateChartDataForZoomLevel(chart);
+                        animation: {
+                            duration: 0
                         }
                     },
                     limits: {
@@ -725,12 +563,17 @@ function renderAccuracyChart(history) {
                         mode: 'x',
                         animation: {
                             duration: 0
-                        },
-                        onZoom: ({chart}) => {
-                            updateChartDataForZoomLevel(chart);
                         }
                     }
+                },
+                /*
+                decimation: {
+                    enabled: true,
+                    algorithm: 'lttb',
+                    samples: 500,
+                    threshold: 1000
                 }
+                */
             },
             interaction: {
                 mode: 'nearest',
