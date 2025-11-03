@@ -29,7 +29,6 @@ if (downloadRecordingBtn) {
     downloadRecordingBtn.addEventListener('click', downloadLatestRecording);
 }
 
-
 // Audio & Recording Constants
 const LIVE_SAMPLE_RATE = 16000;
 const RECORD_DURATION_MS = 5000;
@@ -266,7 +265,7 @@ function disableDownload() {
     latestRecordingBlob = null;
 }
 
-// In-browser microphone recording setup
+// In-browser microphone recording setup and handling
 async function initMicRecording() {
     if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
         historyLog.innerHTML = 'Microphone recording is not supported in this browser.';
@@ -275,26 +274,28 @@ async function initMicRecording() {
     }
 
     try {
-        console.log('Trying to create micstream');
+        console.log('Microphone recording supported, attempting to create MediaRecorder');
         //navigator.mediaDevices.getUserMedia({ audio: true }).then((micStream) => {}).catch((err) => {console.error("getUserMedia error:", err);});
         micStream = await navigator.mediaDevices.getUserMedia({ audio: true });
         mediaRecorder = new MediaRecorder(micStream);
 
         console.log('MediaRecorder created:', mediaRecorder);
 
-        mediaRecorder.addEventListener('dataAvailable', (event) => {
+        // When audio data becomes available as a result of calling mediaRecorder.start() (see handleMicRecordClick)
+        mediaRecorder.addEventListener('dataavailable', (event) => {
             if (event.data && event.data.size > 0) {
                 micChunks.push(event.data);
             }
         });
 
+        // When mediaRecorder.stop() is called
         mediaRecorder.addEventListener('stop', async () => {
             const chunks = micChunks;
             micChunks = [];
 
-            if (chunks.length === 0) {
+            if (chunks.length == 0) {
                 disableDownload();
-                historyLog.innerHTML = 'No audio captured from microphone.';
+                historyLog.innerHTML = 'No audio captured from microphone. Something has probably gone wrong.';
                 //statusElement.textContent = 'Microphone recording stopped.';
                 micRecordBtn.textContent = 'Record w/ Mic';
                 micRecordBtn.disabled = false;
@@ -359,17 +360,19 @@ async function handleMicRecordClick() {
         return;
     }
     
+    // Start recording
     if (mediaRecorder.state === 'inactive') {
         micChunks = [];
         isRecording = true;
         mediaRecorder.start();
         micRecordBtn.textContent = 'Stop Recording';
-        //statusElement.textContent = 'Recording...';
         playBtn.disabled = true;
         disableDownload();
         cleanupLatestRecordingUrl();
         historyLog.innerHTML = 'Recording microphone input...';
-    } else if (mediaRecorder.state === 'recording') {
+    } 
+    // Stop recording
+    else if (mediaRecorder.state === 'recording') {
         micRecordBtn.disabled = true;
         mediaRecorder.stop();
     }
