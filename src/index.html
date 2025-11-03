@@ -55,12 +55,14 @@
 <body>
     <div class="container">
         <h1>Music Practice Server</h1>
-        <p>Status: <span id="status">Connecting...</span></p>
+        <p>WebSocket status: <span id="status">Connecting...</span></p>
         
         <h2>Live Recording</h2>
         <div>
-            <button id="recordBtn">Record 5s</button>
+            <button id="micRecordBtn">Record w/ Mic</button>
+            <button id="recordBtn">Record 5s from WebSocket</button>
             <button id="playBtn" disabled>Play</button>
+            <button id="downloadRecordingBtn" disabled>Download Recording</button>
         </div>
 
         <h2>Analyze Audio File</h2>

@@ -12,6 +12,8 @@ const statusElement = document.getElementById('status');
 const recordBtn = document.getElementById('recordBtn');
 const playBtn = document.getElementById('playBtn');
 const playPauseBtn = document.getElementById('playPauseBtn');
+const micRecordBtn = document.getElementById('micRecordBtn');
+const downloadRecordingBtn = document.getElementById('downloadRecordingBtn');
 const audioPlayer = document.getElementById('audioPlayer');
 const historyLog = document.getElementById('historyLog');
 const fileInput = document.getElementById('fileInput');
@@ -20,21 +22,43 @@ const useCentsToggle = document.getElementById('useCentsToggle');
 const standardPitchInput = document.getElementById('standardPitchInput');
 const submitPitchBtn = document.getElementById('submitPitchBtn');
 
+if (micRecordBtn) {
+    micRecordBtn.addEventListener('click', handleMicRecordClick);
+}
+if (downloadRecordingBtn) {
+    downloadRecordingBtn.addEventListener('click', downloadLatestRecording);
+}
+
+
 // Audio & Recording Constants
 const LIVE_SAMPLE_RATE = 16000;
 const RECORD_DURATION_MS = 5000;
 const ANALYSIS_BUFFER_SIZE = 2048;
 
-// State Variables
+// WebSocket variables
 let isRecording = false;
-let audioChunks = [];
+let audioWSChunks = []; 
+
+// Microphone recording variables
+let mediaRecorder = null;
+let micStream = null;
+let micChunks = [];
+let micInitPromise = null;
+
+// Latest WS/mic recording data
+let latestRecordingBlob = null;
+let latestRecordingUrl = null;
+let downloadAnchor = null;
+
+// Analysis variables
 let accuracyHistory = [];
 let pitchyDetector;
 let audioContext;
 let accuracyChart;
 let playheadAnimationId = null;
 
-// --- NOTE & FREQUENCY DATA ---
+
+// Note and frequency data
 let A4 = 440; // Want to keep current A4 value accessible
 const noteNames = ["A", "A#", "B", "C", "C#", "D", "D#", "E", "F", "F#", "G", "G#"];
 let standardFrequencies = {};
@@ -52,6 +76,37 @@ function generateStandardFrequencies() {
 }
 generateStandardFrequencies(); // Move this default initialization somewhere else?
 
+// 
+function cleanupLatestRecordingUrl() {
+    if (latestRecordingUrl) {
+        URL.revokeObjectURL(latestRecordingUrl);
+        latestRecordingUrl = null;
+    }
+}
+
+function handleRecordedAudio(blob, source) {
+    // keep the latest blob around for playback/download
+    latestRecordingBlob = blob;
+    cleanupLatestRecordingUrl();
+    latestRecordingUrl = URL.createObjectURL(blob);
+
+    audioPlayer.src = latestRecordingUrl;
+    audioPlayer.load();              // force reload so the new clip is ready
+    playBtn.disabled = false;
+    downloadRecordingBtn.disabled = false;
+
+    // tailor the UI copy a bit
+    if (source === 'liveWS') {
+        //statusElement.textContent = 'Live recording ready.';
+        displayHistory(accuracyHistory, 'live');
+    } else if (source === 'microphone') {
+        //statusElement.textContent = 'Microphone recording ready.';
+        displayHistory(accuracyHistory, 'microphone');
+    }
+
+    historyLog.innerHTML = historyLog.innerHTML || 'Recording analyzed successfully.';
+}
+
 // --- WEBSOCKET SETUP ---
 const ws = new WebSocket(`ws://${window.location.host}`);
 ws.binaryType = 'arraybuffer';
@@ -66,9 +121,9 @@ ws.onmessage = (event) => {
     if (event.data instanceof ArrayBuffer) {
         const pcmData = new Int16Array(event.data);
         if (isRecording) {
-            audioChunks.push(pcmData);
+            audioWSChunks.push(pcmData);
             const analysisResult = analyzePitch(pcmData, LIVE_SAMPLE_RATE);
-            const time = (audioChunks.length * pcmData.length / LIVE_SAMPLE_RATE).toFixed(2);
+            const time = (audioWSChunks.length * pcmData.length / LIVE_SAMPLE_RATE).toFixed(2);
             accuracyHistory.push({ time, ...analysisResult });
         }
     }
@@ -175,12 +230,13 @@ function findClosestNote(frequency) {
 }
 
 
-// --- LIVE RECORDING & PLAYBACK ---
+// Live WebSocket recording and playback
 recordBtn.onclick = () => {
     isRecording = true;
     recordBtn.disabled = true;
     playBtn.disabled = true;
-    audioChunks = [];
+    disableDownload();
+    audioWSChunks = [];
     accuracyHistory = [];
     historyLog.innerHTML = 'Recording live audio...';
     statusElement.textContent = 'Recording...';
@@ -190,13 +246,9 @@ recordBtn.onclick = () => {
         recordBtn.disabled = false;
         statusElement.textContent = 'Recording finished.';
         
-        displayHistory(accuracyHistory, 'live');
-
-        if (audioChunks.length > 0) {
-            const audioBlob = createWavBlob(audioChunks);
-            const audioUrl = URL.createObjectURL(audioBlob);
-            audioPlayer.src = audioUrl;
-            playBtn.disabled = false;
+        if (audioWSChunks.length > 0) {
+            const audioBlob = createWavBlob(audioWSChunks);
+            handleRecordedAudio(audioBlob, 'liveWS');
         } else {
             historyLog.innerHTML = 'No audio data received during recording.';
         }
@@ -206,6 +258,151 @@ recordBtn.onclick = () => {
 playBtn.onclick = () => {
     audioPlayer.play();
 };
+
+// Called when starting a new recording, deleting the previous recording
+function disableDownload() {
+    downloadRecordingBtn.disabled = true;
+    cleanupLatestRecordingUrl();
+    latestRecordingBlob = null;
+}
+
+// In-browser microphone recording setup
+async function initMicRecording() {
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+        historyLog.innerHTML = 'Microphone recording is not supported in this browser.';
+        console.error('Microphone recording not supported');
+        return;
+    }
+
+    try {
+        console.log('Trying to create micstream');
+        //navigator.mediaDevices.getUserMedia({ audio: true }).then((micStream) => {}).catch((err) => {console.error("getUserMedia error:", err);});
+        micStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        mediaRecorder = new MediaRecorder(micStream);
+
+        console.log('MediaRecorder created:', mediaRecorder);
+
+        mediaRecorder.addEventListener('dataAvailable', (event) => {
+            if (event.data && event.data.size > 0) {
+                micChunks.push(event.data);
+            }
+        });
+
+        mediaRecorder.addEventListener('stop', async () => {
+            const chunks = micChunks;
+            micChunks = [];
+
+            if (chunks.length === 0) {
+                disableDownload();
+                historyLog.innerHTML = 'No audio captured from microphone.';
+                //statusElement.textContent = 'Microphone recording stopped.';
+                micRecordBtn.textContent = 'Record w/ Mic';
+                micRecordBtn.disabled = false;
+                return;
+            }
+
+            historyLog.innerHTML = 'Processing microphone recording...';
+            //statusElement.textContent = 'Processing microphone recording...';
+            const audioBlob = new Blob(chunks, { type: 'audio/wav' });
+            await processMicRecording(audioBlob);
+            micRecordBtn.textContent = 'Record w/ Mic';
+            micRecordBtn.disabled = false;
+        });
+
+        micRecordBtn.disabled = false;
+    } catch (error) {
+        console.error('Microphone access denied or failed.', error);
+        historyLog.innerHTML = 'Unable to access microphone. Please check browser permissions.';
+        micInitPromise = null;
+    }
+}
+
+async function processMicRecording(blob) {
+    historyLog.innerHTML = 'Analyzing microphone recording...';
+
+    try {
+        const arrayBuffer = await blob.arrayBuffer();
+        const tempAudioBuffer = await audioContext.decodeAudioData(arrayBuffer);
+        const pcmData = tempAudioBuffer.getChannelData(0);
+        const sampleRate = tempAudioBuffer.sampleRate;
+
+        accuracyHistory = [];
+        for (let i = 0; i < pcmData.length - ANALYSIS_BUFFER_SIZE; i += ANALYSIS_BUFFER_SIZE) {
+            const chunk = pcmData.slice(i, i + ANALYSIS_BUFFER_SIZE);
+            const result = analyzePitch(chunk, sampleRate);
+            const time = (i / sampleRate).toFixed(2);
+            accuracyHistory.push({ time, ...result });
+        }
+
+        //latestRecordingBlob = blob;
+        //latestRecordingUrl = URL.createObjectURL(blob);
+        //downloadRecordingBtn.disabled = false;
+        handleRecordedAudio(blob, 'microphone');
+    } catch (error) {
+        console.error('Error processing microphone recording:', error);
+        historyLog.innerHTML = 'Failed to process microphone recording.';
+    }
+}
+
+// Microphone record button handler
+async function handleMicRecordClick() {
+    console.log("Mic record button clicked");
+    if (!mediaRecorder) {
+        if (!micInitPromise) {
+            micInitPromise = initMicRecording();
+        }
+        await micInitPromise;
+    }
+
+    if (!mediaRecorder) {
+        console.log("No mediaRecorder available after init");
+        return;
+    }
+    
+    if (mediaRecorder.state === 'inactive') {
+        micChunks = [];
+        isRecording = true;
+        mediaRecorder.start();
+        micRecordBtn.textContent = 'Stop Recording';
+        //statusElement.textContent = 'Recording...';
+        playBtn.disabled = true;
+        disableDownload();
+        cleanupLatestRecordingUrl();
+        historyLog.innerHTML = 'Recording microphone input...';
+    } else if (mediaRecorder.state === 'recording') {
+        micRecordBtn.disabled = true;
+        mediaRecorder.stop();
+    }
+}
+
+// Download button handler
+function downloadLatestRecording() {
+    if (!latestRecordingBlob) {
+        historyLog.innerHTML = 'Nothing to download yet. Record something first.';
+        return;
+    }
+
+    // Recreate the blob URL if it was cleared by disableDownload()
+    if (!latestRecordingUrl) {
+        latestRecordingUrl = URL.createObjectURL(latestRecordingBlob);
+    }
+
+    if (!downloadAnchor) {
+        downloadAnchor = document.createElement('a');
+        downloadAnchor.style.display = 'none';
+        document.body.appendChild(downloadAnchor);
+    }
+
+    const timestamp = new Date()
+        .toISOString()
+        .replace(/[:.]/g, '-'); // safe for filenames
+
+    downloadAnchor.href = latestRecordingUrl;
+    downloadAnchor.download = `practice-recording-${timestamp}.wav`;
+    downloadAnchor.click();
+
+    historyLog.innerHTML = 'Recording ready—download started.';
+}
 
 // --- FILE UPLOAD & ANALYSIS ---
 fileInput.onchange = (event) => {
@@ -603,12 +800,12 @@ function displayHistory(history, type) {
     }
 }
 
-function createWavBlob(audioChunks) {
+function createWavBlob(audioWSChunks) {
     let totalLength = 0;
-    audioChunks.forEach(chunk => { totalLength += chunk.length; });
+    audioWSChunks.forEach(chunk => { totalLength += chunk.length; });
     const pcmData = new Int16Array(totalLength);
     let offset = 0;
-    audioChunks.forEach(chunk => { pcmData.set(chunk, offset); offset += chunk.length; });
+    audioWSChunks.forEach(chunk => { pcmData.set(chunk, offset); offset += chunk.length; });
     const buffer = new ArrayBuffer(44 + pcmData.byteLength);
     const view = new DataView(buffer);
     const numChannels = 1, bitsPerSample = 16;
