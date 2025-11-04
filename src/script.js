@@ -1,6 +1,6 @@
-//TODO:
+// TODO:
 // add refresh chart button/function that redoes note/accuracy calculations (don't need to redo frequency) and re-renders chart
-// add direct microphone input
+// try visualizing doppler effect
 
 const debugShowAllNotes = false; // Display all notes including low clarity ones in chart
 
@@ -10,9 +10,10 @@ import { PitchDetector } from 'https://esm.sh/pitchy@4.1.0';
 // DOM Elements
 const statusElement = document.getElementById('status');
 const recordBtn = document.getElementById('recordBtn');
-const playBtn = document.getElementById('playBtn');
+//const playBtn = document.getElementById('playBtn');
 const playPauseBtn = document.getElementById('playPauseBtn');
 const micRecordBtn = document.getElementById('micRecordBtn');
+const fileNameDisplay = document.getElementById('fileNameDisplay');
 const downloadRecordingBtn = document.getElementById('downloadRecordingBtn');
 const audioPlayer = document.getElementById('audioPlayer');
 const historyLog = document.getElementById('historyLog');
@@ -91,7 +92,7 @@ function handleRecordedAudio(blob, source) {
 
     audioPlayer.src = latestRecordingUrl;
     audioPlayer.load();              // force reload so the new clip is ready
-    playBtn.disabled = false;
+    //playBtn.disabled = false;
     downloadRecordingBtn.disabled = false;
 
     // tailor the UI copy a bit
@@ -233,7 +234,7 @@ function findClosestNote(frequency) {
 recordBtn.onclick = () => {
     isRecording = true;
     recordBtn.disabled = true;
-    playBtn.disabled = true;
+    //playBtn.disabled = true;
     disableDownload();
     audioWSChunks = [];
     accuracyHistory = [];
@@ -253,11 +254,11 @@ recordBtn.onclick = () => {
         }
     }, RECORD_DURATION_MS);
 };
-
+/*
 playBtn.onclick = () => {
     audioPlayer.play();
 };
-
+*/
 // Called when starting a new recording, deleting the previous recording
 function disableDownload() {
     downloadRecordingBtn.disabled = true;
@@ -366,7 +367,7 @@ async function handleMicRecordClick() {
         isRecording = true;
         mediaRecorder.start();
         micRecordBtn.textContent = 'Stop Recording';
-        playBtn.disabled = true;
+        //playBtn.disabled = true;
         disableDownload();
         cleanupLatestRecordingUrl();
         historyLog.innerHTML = 'Recording microphone input...';
@@ -412,6 +413,10 @@ fileInput.onchange = (event) => {
     const file = event.target.files[0];
     if (!file) return;
 
+    if (fileNameDisplay) {
+        fileNameDisplay.textContent = `Selected: ${file.name}`;
+    }
+
     const reader = new FileReader();
     reader.onload = (e) => {
         historyLog.innerHTML = 'Analyzing file...';
@@ -433,7 +438,7 @@ fileInput.onchange = (event) => {
             
             const fileUrl = URL.createObjectURL(file);
             audioPlayer.src = fileUrl;
-            playBtn.disabled = false;
+            //playBtn.disabled = false;
         });
     };
     reader.readAsArrayBuffer(file);
@@ -794,7 +799,9 @@ function displayHistory(history, type) {
         
         // Render the accuracy chart
         renderAccuracyChart(history);
+        //uploadedFileName = (type === 'file') ? fileInput.files[0].name : null;
         historyLog.innerHTML = `Displaying ${history.length} analyzed notes from the ${type === 'live' ? 'live recording' : 'uploaded file'}.`;
+
     } else {
         historyLog.innerHTML = `No clear notes were detected in the ${type === 'live' ? 'recording' : 'file'}.`;
         

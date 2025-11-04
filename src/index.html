@@ -54,23 +54,24 @@
 </head>
 <body>
     <div class="container">
-        <h1>Intonation Checker</h1>
+        <h1>Intonation Grapher</h1>
         <p>WebSocket status: <span id="status">Connecting...</span></p>
         
         <h2>Live Recording</h2>
         <div>
             <button id="micRecordBtn">Record w/ Mic</button>
             <button id="recordBtn">Record 5s from WebSocket</button>
-            <button id="playBtn" disabled>Play</button>
+            <!-- <button id="playBtn" disabled>Play</button> -->
             <button id="downloadRecordingBtn" disabled>Download Recording</button>
         </div>
 
         <h2>Analyze Audio File</h2>
-        <input type="file" id="fileInput" accept=".wav,.mp3">
+        <input type="file" id="fileInput" accept=".wav,.mp3,.ogg,.aac,.flac,.m4a">
+        <span id="fileNameDisplay" style="margin-left: 10px; font-style: italic; color: #667;"></span>
         <div id="historyLog">Analysis history will appear here...</div>
     </div>
 
-    <div class="full-width-container"></div>
+    <div class="full-width-container">
         <div class="chart-container">
             <canvas id="accuracyChart"></canvas>
             <audio id="audioPlayer"></audio>
