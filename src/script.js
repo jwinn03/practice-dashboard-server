@@ -771,14 +771,6 @@ function renderAccuracyChart(history) {
                         }
                     }
                 },
-                /*
-                decimation: {
-                    enabled: true,
-                    algorithm: 'lttb',
-                    samples: 500,
-                    threshold: 1000
-                }
-                */
             },
             interaction: {
                 mode: 'nearest',
