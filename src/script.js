@@ -1,6 +1,5 @@
 // TODO:
 // add refresh chart button/function that redoes note/accuracy calculations (don't need to redo frequency) and re-renders chart
-// try visualizing doppler effect
 
 const debugShowAllNotes = false; // Display all notes including low clarity ones in chart
 
@@ -305,7 +304,7 @@ async function initMicRecording() {
 
             historyLog.innerHTML = 'Processing microphone recording...';
             //statusElement.textContent = 'Processing microphone recording...';
-            const audioBlob = new Blob(chunks, { type: 'audio/wav' });
+            const audioBlob = new Blob(chunks, { type: mediaRecorder.mimeType });
             await processMicRecording(audioBlob);
             micRecordBtn.textContent = 'Record w/ Mic';
             micRecordBtn.disabled = false;
@@ -401,8 +400,10 @@ function downloadLatestRecording() {
         .toISOString()
         .replace(/[:.]/g, '-'); // safe for filenames
 
+    const extension = latestRecordingBlob.type.split(';')[0].split('/')[1] || 'wav';
+
     downloadAnchor.href = latestRecordingUrl;
-    downloadAnchor.download = `practice-recording-${timestamp}.wav`;
+    downloadAnchor.download = `practice-recording-${timestamp}.${extension}`;
     downloadAnchor.click();
 
     historyLog.innerHTML = 'Recording ready—download started.';

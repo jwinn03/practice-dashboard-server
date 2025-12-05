@@ -3,7 +3,8 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Music Practice Server</title>
+    <title>Intonation Checker</title>
+    <link rel="icon" type="image/png" href="/icon.png">
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-zoom"></script>
     <style>
@@ -54,7 +55,7 @@
 </head>
 <body>
     <div class="container">
-        <h1>Intonation Grapher</h1>
+        <h1>Intonation Checker</h1>
         <p>WebSocket status: <span id="status">Connecting...</span></p>
         
         <h2>Live Recording</h2>
@@ -65,10 +66,10 @@
             <button id="downloadRecordingBtn" disabled>Download Recording</button>
         </div>
 
-        <h2>Analyze Audio File</h2>
+        <h2>Upload Audio File</h2>
         <input type="file" id="fileInput" accept=".wav,.mp3,.ogg,.aac,.flac,.m4a">
         <span id="fileNameDisplay" style="margin-left: 10px; font-style: italic; color: #667;"></span>
-        <div id="historyLog">Analysis history will appear here...</div>
+        <div id="historyLog">Record with the microphone or upload an audio file to get started</div>
     </div>
 
     <div class="full-width-container">
@@ -76,10 +77,11 @@
             <canvas id="accuracyChart"></canvas>
             <audio id="audioPlayer"></audio>
         </div>
+        <button id="playPauseBtn" disabled>▶</button>
     </div>
 
     <div class="container" style="margin-top: 1rem;">
-        <button id="playPauseBtn" disabled>▶</button>
+        
         <h2>Options</h2>
         <div>
             <label for="useCentsToggle">Display metric:</label>
@@ -94,6 +96,7 @@
             <label for="standardPitchInput">Hz</label>
             <button id="submitPitchBtn">Submit</button>
         </div>
+    </div>
         
     </div>
 
